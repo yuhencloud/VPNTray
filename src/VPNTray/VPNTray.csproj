@@ -17,4 +17,8 @@
     <PackageReference Include="Hardcodet.NotifyIcon.Wpf" Version="2.0.1" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Resource Include="Resources/icons/*.ico" />
+  </ItemGroup>
+
 </Project>

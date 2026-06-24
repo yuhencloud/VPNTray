@@ -1,0 +1,54 @@
+<Window x:Class="VPNTray.UI.OnboardingWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="VPNTray Setup" Width="480" Height="420"
+        WindowStartupLocation="CenterScreen" ResizeMode="NoResize">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Step 1: Welcome -->
+        <StackPanel x:Name="WelcomePane" Grid.Row="0">
+            <TextBlock Text="Welcome to VPNTray" FontSize="20" FontWeight="Bold"/>
+            <TextBlock TextWrapping="Wrap" Margin="0,12,0,0"
+                Text="This wizard checks the bundled VPN tools and collects your VPN credentials. Click Next to begin."/>
+        </StackPanel>
+
+        <!-- Step 2: Dependency check -->
+        <StackPanel x:Name="DepsPane" Grid.Row="0" Visibility="Collapsed">
+            <TextBlock Text="Dependency Check" FontSize="18" FontWeight="Bold"/>
+            <ItemsControl x:Name="DepsList" Margin="0,12,0,0"/>
+            <Button x:Name="RecheckButton" Content="Recheck" Width="100" HorizontalAlignment="Left"
+                    Margin="0,12,0,0" Click="OnRecheck"/>
+        </StackPanel>
+
+        <!-- Step 3: Credentials -->
+        <StackPanel x:Name="CredsPane" Grid.Row="0" Visibility="Collapsed">
+            <TextBlock Text="Credentials" FontSize="18" FontWeight="Bold"/>
+            <TextBlock Text="Username" Margin="0,8,0,2"/>
+            <TextBox x:Name="OnbUsername"/>
+            <TextBlock Text="Password prefix" Margin="0,8,0,2"/>
+            <PasswordBox x:Name="OnbPrefix"/>
+            <TextBlock Text="TOTP secret (Base32)" Margin="0,8,0,2"/>
+            <PasswordBox x:Name="OnbTotp"/>
+            <TextBlock Text="Gateway" Margin="0,8,0,2"/>
+            <TextBox x:Name="OnbGateway"/>
+            <TextBlock Text="Server cert pin" Margin="0,8,0,2"/>
+            <TextBox x:Name="OnbPin"/>
+        </StackPanel>
+
+        <!-- Step 4: Done -->
+        <StackPanel x:Name="DonePane" Grid.Row="0" Visibility="Collapsed">
+            <TextBlock Text="All set" FontSize="18" FontWeight="Bold"/>
+            <TextBlock TextWrapping="Wrap" Margin="0,12,0,0"
+                Text="Setup complete. Click Done to return to the tray. Click the tray icon to connect."/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button x:Name="BackButton" Content="Back" Width="80" Margin="0,0,8,0" Click="OnBack"/>
+            <Button x:Name="NextButton" Content="Next" Width="80" Click="OnNext"/>
+        </StackPanel>
+    </Grid>
+</Window>

@@ -1,54 +1,115 @@
 <Window x:Class="VPNTray.UI.OnboardingWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="VPNTray Setup" Width="480" Height="420"
-        WindowStartupLocation="CenterScreen" ResizeMode="NoResize">
-    <Grid Margin="16">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
+        Title="VPNTray Setup" Width="500" Height="520"
+        WindowStartupLocation="CenterScreen" ResizeMode="NoResize"
+        Background="{StaticResource WindowBg}" FontFamily="Segoe UI"
+        UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
+    <DockPanel>
+        <!-- Header with step dots -->
+        <Border DockPanel.Dock="Top" Background="{StaticResource CardBg}" Padding="24,18">
+            <DockPanel>
+                <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+                    <Viewbox Width="24" Height="24" VerticalAlignment="Center">
+                        <Path Data="{StaticResource ShieldGeometry}" Fill="{StaticResource Accent}"/>
+                    </Viewbox>
+                    <TextBlock Text="Set up VPNTray" Style="{StaticResource H1}"
+                               Margin="12,0,0,0" VerticalAlignment="Center"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <Border x:Name="Dot0" Width="8" Height="8" CornerRadius="4" Margin="4,0" Background="{StaticResource Accent}"/>
+                    <Border x:Name="Dot1" Width="8" Height="8" CornerRadius="4" Margin="4,0" Background="{StaticResource InputBorder}"/>
+                    <Border x:Name="Dot2" Width="8" Height="8" CornerRadius="4" Margin="4,0" Background="{StaticResource InputBorder}"/>
+                    <Border x:Name="Dot3" Width="8" Height="8" CornerRadius="4" Margin="4,0" Background="{StaticResource InputBorder}"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+        <Border DockPanel.Dock="Top" Height="2" Background="{StaticResource Accent}"/>
 
-        <!-- Step 1: Welcome -->
-        <StackPanel x:Name="WelcomePane" Grid.Row="0">
-            <TextBlock Text="Welcome to VPNTray" FontSize="20" FontWeight="Bold"/>
-            <TextBlock TextWrapping="Wrap" Margin="0,12,0,0"
-                Text="This wizard checks the bundled VPN tools and collects your VPN credentials. Click Next to begin."/>
-        </StackPanel>
+        <!-- Footer -->
+        <Border DockPanel.Dock="Bottom" Background="{StaticResource FooterBg}" Padding="24,14">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="BackButton" Content="Back" Click="OnBack" Margin="0,0,10,0"/>
+                <Button x:Name="NextButton" Content="Next" Style="{StaticResource PrimaryButton}" Click="OnNext"/>
+            </StackPanel>
+        </Border>
 
-        <!-- Step 2: Dependency check -->
-        <StackPanel x:Name="DepsPane" Grid.Row="0" Visibility="Collapsed">
-            <TextBlock Text="Dependency Check" FontSize="18" FontWeight="Bold"/>
-            <ItemsControl x:Name="DepsList" Margin="0,12,0,0"/>
-            <Button x:Name="RecheckButton" Content="Recheck" Width="100" HorizontalAlignment="Left"
-                    Margin="0,12,0,0" Click="OnRecheck"/>
-        </StackPanel>
+        <!-- Body -->
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <Grid Margin="24,18">
+                <!-- Step 1: Welcome -->
+                <StackPanel x:Name="WelcomePane">
+                    <TextBlock Text="Welcome" Style="{StaticResource H1}"/>
+                    <TextBlock Style="{StaticResource Body}" Margin="0,10,0,0"
+                        Text="This wizard checks the bundled VPN tools (openconnect, Wintun, scripts) and collects your VPN credentials. Click Next to begin."/>
+                </StackPanel>
 
-        <!-- Step 3: Credentials -->
-        <StackPanel x:Name="CredsPane" Grid.Row="0" Visibility="Collapsed">
-            <TextBlock Text="Credentials" FontSize="18" FontWeight="Bold"/>
-            <TextBlock Text="Username" Margin="0,8,0,2"/>
-            <TextBox x:Name="OnbUsername"/>
-            <TextBlock Text="Password prefix" Margin="0,8,0,2"/>
-            <PasswordBox x:Name="OnbPrefix"/>
-            <TextBlock Text="TOTP secret (Base32)" Margin="0,8,0,2"/>
-            <PasswordBox x:Name="OnbTotp"/>
-            <TextBlock Text="Gateway" Margin="0,8,0,2"/>
-            <TextBox x:Name="OnbGateway"/>
-            <TextBlock Text="Server cert pin" Margin="0,8,0,2"/>
-            <TextBox x:Name="OnbPin"/>
-        </StackPanel>
+                <!-- Step 2: Dependency check -->
+                <StackPanel x:Name="DepsPane" Visibility="Collapsed">
+                    <TextBlock Text="Dependency check" Style="{StaticResource H1}"/>
+                    <TextBlock Style="{StaticResource Body}" Margin="0,8,0,2"
+                        Text="The native tools are bundled — these should all be green."/>
+                    <ItemsControl x:Name="DepsList" Margin="0,10,0,0">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,5">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Border x:Name="badge" Width="18" Height="18" CornerRadius="9"
+                                            Margin="0,1,10,0" VerticalAlignment="Top"
+                                            Background="{StaticResource ErrRed}">
+                                        <TextBlock x:Name="glyph" Text="!" Foreground="White" FontSize="11"
+                                                   FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock Text="{Binding Name}" Foreground="{StaticResource TextPrimary}" FontSize="13"/>
+                                        <TextBlock x:Name="hint" Text="{Binding Hint}" Style="{StaticResource Body}"
+                                                   FontSize="11" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                </Grid>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding Passed}" Value="True">
+                                        <Setter TargetName="badge" Property="Background" Value="{StaticResource OkGreen}"/>
+                                        <Setter TargetName="glyph" Property="Text" Value="&#x2713;"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Hint}" Value="{x:Null}">
+                                        <Setter TargetName="hint" Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Hint}" Value="">
+                                        <Setter TargetName="hint" Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Button x:Name="RecheckButton" Content="Recheck" Click="OnRecheck"
+                            HorizontalAlignment="Left" Margin="0,16,0,0"/>
+                </StackPanel>
 
-        <!-- Step 4: Done -->
-        <StackPanel x:Name="DonePane" Grid.Row="0" Visibility="Collapsed">
-            <TextBlock Text="All set" FontSize="18" FontWeight="Bold"/>
-            <TextBlock TextWrapping="Wrap" Margin="0,12,0,0"
-                Text="Setup complete. Click Done to return to the tray. Click the tray icon to connect."/>
-        </StackPanel>
+                <!-- Step 3: Credentials -->
+                <StackPanel x:Name="CredsPane" Visibility="Collapsed">
+                    <TextBlock Text="Credentials" Style="{StaticResource H1}"/>
+                    <TextBlock Text="Username" Style="{StaticResource FieldLabel}" Margin="0,10,0,5"/>
+                    <TextBox x:Name="OnbUsername"/>
+                    <TextBlock Text="Password prefix" Style="{StaticResource FieldLabel}"/>
+                    <PasswordBox x:Name="OnbPrefix"/>
+                    <TextBlock Text="TOTP secret (Base32)" Style="{StaticResource FieldLabel}"/>
+                    <PasswordBox x:Name="OnbTotp"/>
+                    <TextBlock Text="Gateway" Style="{StaticResource FieldLabel}"/>
+                    <TextBox x:Name="OnbGateway"/>
+                    <TextBlock Text="Server cert pin" Style="{StaticResource FieldLabel}"/>
+                    <TextBox x:Name="OnbPin"/>
+                </StackPanel>
 
-        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-            <Button x:Name="BackButton" Content="Back" Width="80" Margin="0,0,8,0" Click="OnBack"/>
-            <Button x:Name="NextButton" Content="Next" Width="80" Click="OnNext"/>
-        </StackPanel>
-    </Grid>
+                <!-- Step 4: Done -->
+                <StackPanel x:Name="DonePane" Visibility="Collapsed">
+                    <TextBlock Text="All set" Style="{StaticResource H1}"/>
+                    <TextBlock Style="{StaticResource Body}" Margin="0,10,0,0"
+                        Text="Setup complete. Click Done to return to the tray, then click the tray icon and choose Connect."/>
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
+    </DockPanel>
 </Window>

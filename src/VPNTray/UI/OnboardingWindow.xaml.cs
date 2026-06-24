@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using VPNTray.Config;
 using VPNTray.Dependencies;
 
@@ -16,6 +17,7 @@ public partial class OnboardingWindow : Window
     public event Action? Cancelled;
 
     private readonly StackPanel[] _panes;
+    private readonly Border[] _dots;
 
     public OnboardingWindow(ConfigStore store, DependencyChecker checker)
     {
@@ -23,6 +25,7 @@ public partial class OnboardingWindow : Window
         _checker = checker;
         InitializeComponent();
         _panes = new[] { WelcomePane, DepsPane, CredsPane, DonePane };
+        _dots = new[] { Dot0, Dot1, Dot2, Dot3 };
         PrefillCredentials();
         ShowStep(0);
         Closing += (_, _) => { if (!_completed) Cancelled?.Invoke(); };
@@ -45,14 +48,21 @@ public partial class OnboardingWindow : Window
             _panes[i].Visibility = i == step ? Visibility.Visible : Visibility.Collapsed;
         BackButton.IsEnabled = step > 0;
         NextButton.Content = step == _panes.Length - 1 ? "Done" : "Next";
+
+        var accent = (Brush)FindResource("Accent");
+        var idle = (Brush)FindResource("InputBorder");
+        for (int i = 0; i < _dots.Length; i++)
+            _dots[i].Background = i <= step ? accent : idle;
+
         if (step == 1) RunDependencyCheck();
     }
 
     private void RunDependencyCheck()
     {
         var statuses = _checker.Check(_store.Load() ?? new VpnConfig());
-        DepsList.ItemsSource = statuses.Select(s =>
-            (s.Passed ? "OK  " : "X   ") + s.Name + (s.FixHint is null ? "" : "  — " + s.FixHint));
+        DepsList.ItemsSource = statuses
+            .Select(s => new DependencyRow { Passed = s.Passed, Name = s.Name, Hint = s.FixHint })
+            .ToList();
     }
 
     private void OnRecheck(object sender, RoutedEventArgs e) => RunDependencyCheck();
@@ -100,4 +110,12 @@ public partial class OnboardingWindow : Window
         _store.Save(c);
         return true;
     }
+}
+
+/// <summary>Row shown in the onboarding dependency list (bound by the DepsList DataTemplate).</summary>
+public sealed class DependencyRow
+{
+    public bool Passed { get; set; }
+    public string Name { get; set; } = "";
+    public string? Hint { get; set; }
 }

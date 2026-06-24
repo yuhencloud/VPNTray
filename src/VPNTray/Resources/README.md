@@ -1,30 +1,37 @@
-# Native binaries (user-supplied)
+# Resources — bundled native binaries
 
-VPN connections will not work until **you** place the following four files in this
-`Resources/` folder. They are intentionally **not** checked into the repository — you
-must supply them from an official OpenConnect Windows build.
+These files are loaded at runtime from the app's `Resources/` folder (see
+`Dependencies/BundledBinaries.cs`) and copied next to the built exe via the
+wildcard `<None Include="Resources\*.exe|*.dll|*.js" CopyToOutputDirectory>`
+items in `VPNTray.csproj`.
 
-| File | Source / notes |
-| ---- | -------------- |
-| `openconnect.exe` | From an official OpenConnect **Windows build, v9.x or newer**. v9.x bundles Wintun, so no separate driver install is needed. |
-| `wintun.dll` | Ships alongside `openconnect.exe` in the same OpenConnect v9.x build. |
-| `vpnc-script-win.js` | The default VPN-configuration script bundled with that OpenConnect build. |
-| `vpnc-script-win--no-dns.js` | A copy of `vpnc-script-win.js` with its **DNS-configuration section removed** (commented out / deleted). Used when "Skip DNS modification" is enabled so VPNTray does not touch the system DNS settings. |
+## What's here and where it came from
 
-## How to obtain them
+| File(s) | Source | Version | License |
+|---|---|---|---|
+| `openconnect.exe` + the `lib*.dll` / `zlib1.dll` set | [horar/openconnect](https://github.com/horar/openconnect) prebuilt MinGW64 build (`openconnect-v8.10_MINGW64.zip`, SHA-512 verified) | OpenConnect **v8.10** (GnuTLS 3.6.13; anyconnect/DTLS/ESP) | LGPL 2.1 |
+| `wintun.dll` | [wintun.net](https://www.wintun.net/) official build `wintun-0.14.1` (amd64) | Wintun 0.14.1 | Prebuilt redistributable (WireGuard LLC) |
+| `vpnc-script-win.js` | the version-matched copy shipped inside the openconnect build above | matches v8.10 | GPL/heuristic script |
+| `vpnc-script-win--no-dns.js` | a copy of `vpnc-script-win.js` with the DNS-configuration block disabled (its `if (env("INTERNAL_IP4_DNS"))` guard changed to `if (false)`) — used when **Skip DNS modification** is on (the default) | — | — |
 
-1. Download an official OpenConnect Windows build (v9.x or newer — for example from the
-   OpenConnect project's published Windows binaries).
-2. Copy `openconnect.exe`, `wintun.dll`, and `vpnc-script-win.js` from that build into
-   this folder.
-3. Make a copy of `vpnc-script-win.js` named `vpnc-script-win--no-dns.js`, then open it
-   and remove (or comment out) the DNS-configuration block so the script skips all DNS
-   changes.
+The official OpenConnect project does not publish a standalone Windows CLI
+binary — only the GUI installer — so `openconnect.exe` comes from the
+well-known `horar/openconnect` community MinGW mirror. The download was
+integrity-checked against the publisher's SHA-512.
 
-## Bundling
+> ⚠️ All `lib*.dll` and `zlib1.dll` are **runtime dependencies of
+> `openconnect.exe`** and must stay in this folder next to it, or openconnect
+> won't launch.
 
-`VPNTray.csproj` uses wildcard copy items (`Resources\*.exe`, `Resources\*.dll`,
-`Resources\*.js`, `Resources\README.md`). Whatever you drop into this folder is copied
-next to the built `VPNTray.exe` under a `Resources\` subfolder, matching
-`BundledBinaries.BaseDir`. The build still succeeds when these files are absent — only
-runtime VPN connectivity is affected.
+## Architecture / platform
+
+The app targets **x64**; the bundled `openconnect.exe`, its DLLs, and
+`wintun.dll` are all **amd64**. They run on 64-bit Windows 10/11.
+
+## Updating openconnect
+
+To move to a newer openconnect: replace `openconnect.exe` + the `lib*.dll`/
+`zlib1.dll` set with a newer MinGW64 build (and refresh `vpnc-script-win.js`
+from that build, then regenerate `vpnc-script-win--no-dns.js` by disabling its
+DNS block the same way). Keep the exact filenames — `BundledBinaries.cs`
+resolves them by name.

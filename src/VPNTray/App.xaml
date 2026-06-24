@@ -1,9 +1,7 @@
-﻿<Application x:Class="VPNTray.App"
+<Application x:Class="VPNTray.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:local="clr-namespace:VPNTray"
-             StartupUri="MainWindow.xaml">
-    <Application.Resources>
-         
-    </Application.Resources>
+             ShutdownMode="OnExplicitShutdown"
+             Startup="OnStartup">
+    <Application.Resources/>
 </Application>

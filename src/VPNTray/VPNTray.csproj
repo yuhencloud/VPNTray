@@ -21,4 +21,11 @@
     <Resource Include="Resources/icons/*.ico" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="Resources\*.exe" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Resources\*.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Resources\*.js" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Resources\README.md" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

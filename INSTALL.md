@@ -52,7 +52,7 @@ dotnet build -c Release
 
 放行后托盘区会出现 VPNTray 图标，并自动弹出 Onboarding 向导。
 
-## 首次启动引导（Onboarding 三步）
+## 首次启动引导（Onboarding 四步）
 
 ### Step 1 · Welcome
 欢迎页，介绍必备条件，点 **Next** 继续。

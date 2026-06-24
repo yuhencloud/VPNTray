@@ -1,0 +1,97 @@
+using VPNTray.Config;
+using VPNTray.Core;
+
+namespace VPNTray.Tests.Core;
+
+internal sealed class FakeOpenConnect : IOpenConnectProcessRunning
+{
+    public OpenConnectHandshake NextHandshake = new(true, null);
+    public bool Running;
+    public int StartCount;
+    public int StopCount;
+    public string? LastPassword;
+
+    public void Start(VpnConfig config, string password) { StartCount++; LastPassword = password; Running = true; }
+    public Task<OpenConnectHandshake> WaitForHandshakeAsync(TimeSpan timeout)
+    {
+        Running = NextHandshake.Connected;
+        return Task.FromResult(NextHandshake);
+    }
+    public bool IsRunning() => Running;
+    public void Stop() { StopCount++; Running = false; }
+}
+
+public class VpnControllerTests
+{
+    private static VpnConfig Good() => new()
+    {
+        Username = "u", PasswordPrefix = "PFX", TotpSecret = "GEZDGNBVGY3TQOJQ",
+        Gateway = "g", ServerCertPin = "pin-sha256:AAAA",
+    };
+
+    [Fact]
+    public async Task Connect_Success_SetsConnectedAndAutoReconnect()
+    {
+        var oc = new FakeOpenConnect { NextHandshake = new(true, null) };
+        var net = new FakeNetworkMonitor();
+        var c = new VpnController(oc, net, () => Good());
+        await c.ConnectAsync();
+        Assert.Equal(VpnStatus.Connected, c.State.Status);
+        Assert.True(c.ShouldAutoReconnect);
+        Assert.StartsWith("PFX", oc.LastPassword); // prefix + TOTP
+    }
+
+    [Fact]
+    public async Task Connect_Failure_SetsFailed_AndDoesNotArmAutoReconnect()
+    {
+        var oc = new FakeOpenConnect { NextHandshake = new(false, "Authentication failed") };
+        var c = new VpnController(oc, new FakeNetworkMonitor(), () => Good());
+        await c.ConnectAsync();
+        Assert.Equal(VpnStatus.Failed, c.State.Status);
+        Assert.False(c.ShouldAutoReconnect);
+    }
+
+    [Fact]
+    public async Task Connect_WhenNotConfigured_FailsWithoutSpawning()
+    {
+        var oc = new FakeOpenConnect();
+        var c = new VpnController(oc, new FakeNetworkMonitor(), () => new VpnConfig());
+        await c.ConnectAsync();
+        Assert.Equal(VpnStatus.Failed, c.State.Status);
+        Assert.Equal(0, oc.StartCount);
+    }
+
+    [Fact]
+    public async Task Disconnect_ClearsAutoReconnect_AndStops()
+    {
+        var oc = new FakeOpenConnect { NextHandshake = new(true, null) };
+        var c = new VpnController(oc, new FakeNetworkMonitor(), () => Good());
+        await c.ConnectAsync();
+        await c.DisconnectAsync();
+        Assert.Equal(VpnStatus.Disconnected, c.State.Status);
+        Assert.False(c.ShouldAutoReconnect);
+        Assert.True(oc.StopCount >= 1);
+    }
+
+    [Fact]
+    public async Task NetworkLost_WhileConnected_AutoDisconnects_ButKeepsIntent()
+    {
+        var oc = new FakeOpenConnect { NextHandshake = new(true, null) };
+        var net = new FakeNetworkMonitor();
+        var c = new VpnController(oc, net, () => Good());
+        c.StartNetworkMonitoring();
+        await c.ConnectAsync();
+        net.Raise(false);
+        await Task.Delay(50);
+        Assert.NotEqual(VpnStatus.Connected, c.State.Status);
+        Assert.True(c.ShouldAutoReconnect); // intent preserved for recovery
+    }
+
+    [Fact]
+    public void MarkSetupIncomplete_SetsSetupIncompleteState()
+    {
+        var c = new VpnController(new FakeOpenConnect(), new FakeNetworkMonitor(), () => new VpnConfig());
+        c.MarkSetupIncomplete();
+        Assert.True(c.State.IsSetupIncomplete);
+    }
+}

@@ -88,6 +88,19 @@ public class VpnControllerTests
     }
 
     [Fact]
+    public async Task Connect_WhenAlreadyConnected_DoesNotSpawnAgain()
+    {
+        var oc = new FakeOpenConnect { NextHandshake = new(true, null) };
+        var c = new VpnController(oc, new FakeNetworkMonitor(), () => Good());
+        await c.ConnectAsync();
+        Assert.Equal(VpnStatus.Connected, c.State.Status);
+        Assert.Equal(1, oc.StartCount);
+
+        await c.ConnectAsync(); // idempotent no-op: already Connected
+        Assert.Equal(1, oc.StartCount);
+    }
+
+    [Fact]
     public void MarkSetupIncomplete_SetsSetupIncompleteState()
     {
         var c = new VpnController(new FakeOpenConnect(), new FakeNetworkMonitor(), () => new VpnConfig());

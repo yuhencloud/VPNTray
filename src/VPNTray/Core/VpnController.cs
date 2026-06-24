@@ -5,11 +5,21 @@ using VPNTray.Util;
 
 namespace VPNTray.Core;
 
+/// <remarks>
+/// Threading: <see cref="PropertyChanged"/> may be raised on a thread-pool thread
+/// (watchdog / reconnect continuations), not just the caller's thread. UI consumers
+/// must marshal observation of <see cref="State"/> to the UI thread — the app's
+/// AppCoordinator does this via Dispatcher.Invoke. This Core class intentionally has
+/// no WPF/Dispatcher dependency.
+/// Connect/disconnect transitions are serialized via an internal gate so overlapping
+/// user actions and network-change events cannot double-spawn openconnect.
+/// </remarks>
 public sealed class VpnController : INotifyPropertyChanged
 {
     private readonly IOpenConnectProcessRunning _openConnect;
     private readonly INetworkMonitor _network;
     private readonly Func<VpnConfig?> _loadConfig;
+    private readonly SemaphoreSlim _gate = new(1, 1);
 
     private VpnState _state = VpnState.Disconnected;
     private CancellationTokenSource? _watchdog;
@@ -44,57 +54,88 @@ public sealed class VpnController : INotifyPropertyChanged
 
     public async Task ConnectAsync()
     {
-        var config = (_loadConfig() ?? new VpnConfig()).Sanitized();
-        if (!config.IsConfigured)
-        {
-            State = VpnState.Failed("Authentication required — configuration is incomplete. Open Settings.");
-            return;
-        }
-
-        State = VpnState.Connecting;
+        await _gate.WaitAsync();
         try
         {
-            string code = TotpGenerator.Code(config.TotpSecret);
-            string password = config.PasswordPrefix + code;
-            _openConnect.Start(config, password);
-            var handshake = await _openConnect.WaitForHandshakeAsync(TimeSpan.FromSeconds(5));
-            if (handshake.Connected)
+            // Idempotency guard: a concurrent/duplicate connect must not double-spawn.
+            if (State.Status == VpnStatus.Connecting || State.Status == VpnStatus.Connected)
             {
-                State = VpnState.Connected(DateTimeOffset.Now);
-                ShouldAutoReconnect = true;
-                StartWatchdog();
+                return;
             }
-            else
+
+            var config = (_loadConfig() ?? new VpnConfig()).Sanitized();
+            if (!config.IsConfigured)
+            {
+                State = VpnState.Failed("Authentication required — configuration is incomplete. Open Settings.");
+                return;
+            }
+
+            State = VpnState.Connecting;
+            try
+            {
+                string code = TotpGenerator.Code(config.TotpSecret);
+                string password = config.PasswordPrefix + code;
+                _openConnect.Start(config, password);
+                var handshake = await _openConnect.WaitForHandshakeAsync(TimeSpan.FromSeconds(5));
+                if (handshake.Connected)
+                {
+                    State = VpnState.Connected(DateTimeOffset.Now);
+                    ShouldAutoReconnect = true;
+                    StartWatchdog();
+                }
+                else
+                {
+                    _openConnect.Stop();
+                    State = VpnState.Failed(handshake.Reason ?? "Connection failed");
+                }
+            }
+            catch (Exception ex)
             {
                 _openConnect.Stop();
-                State = VpnState.Failed(handshake.Reason ?? "Connection failed");
+                AppLogger.Shared.Error("connect error: " + ex.Message);
+                State = VpnState.Failed("Connection error: " + ex.Message);
             }
         }
-        catch (Exception ex)
+        finally
         {
-            _openConnect.Stop();
-            AppLogger.Shared.Error("connect error: " + ex.Message);
-            State = VpnState.Failed("Connection error: " + ex.Message);
+            _gate.Release();
         }
     }
 
     public async Task DisconnectAsync()
     {
-        ShouldAutoReconnect = false;
-        await StopAndClearAsync();
-        State = VpnState.Disconnected;
+        await _gate.WaitAsync();
+        try
+        {
+            ShouldAutoReconnect = false;
+            await StopAndClearAsync();
+            State = VpnState.Disconnected;
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     /// <summary>Network-loss disconnect — preserves ShouldAutoReconnect so recovery can retry.</summary>
     private async Task AutoDisconnectAsync()
     {
-        await StopAndClearAsync();
-        State = VpnState.Disconnected;
+        await _gate.WaitAsync();
+        try
+        {
+            await StopAndClearAsync();
+            State = VpnState.Disconnected;
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     private Task StopAndClearAsync()
     {
         _watchdog?.Cancel();
+        _watchdog?.Dispose();
         _watchdog = null;
         try { _openConnect.Stop(); } catch { /* ignore */ }
         return Task.CompletedTask;
@@ -118,6 +159,7 @@ public sealed class VpnController : INotifyPropertyChanged
     private void StartWatchdog()
     {
         _watchdog?.Cancel();
+        _watchdog?.Dispose();
         _watchdog = new CancellationTokenSource();
         var token = _watchdog.Token;
         _ = Task.Run(async () =>

@@ -93,7 +93,7 @@ public sealed class AppCoordinator
 
     private void ShowSettings()
     {
-        var win = new SettingsWindow(_store, _startup);
+        var win = new SettingsWindow(_store);
         win.Saved += async () =>
         {
             if (_controller.State.Status == VpnStatus.Connected)

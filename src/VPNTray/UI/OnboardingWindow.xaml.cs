@@ -1,8 +1,10 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using VPNTray.Config;
 using VPNTray.Dependencies;
+using VPNTray.Util;
 
 namespace VPNTray.UI;
 
@@ -24,6 +26,7 @@ public partial class OnboardingWindow : Window
         _store = store;
         _checker = checker;
         InitializeComponent();
+        SourceInitialized += (_, _) => WindowEffects.Apply(this);
         _panes = new[] { WelcomePane, DepsPane, CredsPane, DonePane };
         _dots = new[] { Dot0, Dot1, Dot2, Dot3 };
         PrefillCredentials();
@@ -66,6 +69,13 @@ public partial class OnboardingWindow : Window
     }
 
     private void OnRecheck(object sender, RoutedEventArgs e) => RunDependencyCheck();
+
+    private void OnHeaderDrag(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ButtonState == MouseButtonState.Pressed) DragMove();
+    }
+
+    private void OnTitleClose(object sender, RoutedEventArgs e) => Close();
 
     private void OnBack(object sender, RoutedEventArgs e)
     {

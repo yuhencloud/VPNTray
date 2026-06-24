@@ -155,6 +155,17 @@ public sealed class VpnController : INotifyPropertyChanged
     public void MarkSetupIncomplete()
         => State = VpnState.Failed(VpnState.SetupIncompletePrefix + " — finish onboarding to connect.");
 
+    /// <summary>
+    /// Clear the setup-incomplete lock-down once configuration is complete (e.g. after
+    /// the onboarding wizard finishes), so the tray exposes Connect again. No-op if the
+    /// controller is not currently in the setup-incomplete state (don't clobber a live
+    /// connection/failure).
+    /// </summary>
+    public void MarkConfigured()
+    {
+        if (State.IsSetupIncomplete) State = VpnState.Disconnected;
+    }
+
     private void OnReachabilityChanged(bool reachable)
     {
         if (!reachable && State.Status == VpnStatus.Connected)

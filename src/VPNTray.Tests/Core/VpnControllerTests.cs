@@ -117,4 +117,15 @@ public class VpnControllerTests
         c.MarkSetupIncomplete();
         Assert.True(c.State.IsSetupIncomplete);
     }
+
+    [Fact]
+    public void MarkConfigured_ClearsSetupIncomplete_ToDisconnected()
+    {
+        var c = new VpnController(new FakeOpenConnect(), new FakeNetworkMonitor(), () => new VpnConfig());
+        c.MarkSetupIncomplete();
+        Assert.True(c.State.IsSetupIncomplete);
+        c.MarkConfigured();
+        Assert.Equal(VpnStatus.Disconnected, c.State.Status);
+        Assert.False(c.State.IsSetupIncomplete);
+    }
 }

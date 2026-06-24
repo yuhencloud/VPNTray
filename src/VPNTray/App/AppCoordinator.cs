@@ -110,7 +110,7 @@ public sealed class AppCoordinator
     private void ShowOnboarding()
     {
         var win = new OnboardingWindow(_store, _checker);
-        win.Completed += () => UpdateTray();
+        win.Completed += () => { _controller.MarkConfigured(); UpdateTray(); };
         win.Cancelled += () => { if (!( _store.Load()?.IsConfigured ?? false)) _controller.MarkSetupIncomplete(); };
         win.Show();
         win.Activate();

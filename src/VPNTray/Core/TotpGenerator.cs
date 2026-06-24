@@ -51,7 +51,7 @@ public static class TotpGenerator
         foreach (char c in cleaned)
         {
             int value = Alphabet.IndexOf(c);
-            if (value < 0) throw new TotpException($"invalid Base32 character '{c}'");
+            if (value < 0) throw new TotpException("invalid Base32 character in TOTP secret");
             buffer = (buffer << 5) | (uint)value;
             bits += 5;
             if (bits >= 8)

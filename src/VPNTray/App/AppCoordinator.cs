@@ -96,7 +96,11 @@ public sealed class AppCoordinator
         var win = new SettingsWindow(_store, _startup);
         win.Saved += async () =>
         {
-            if (_controller.State.Status == VpnStatus.Connected) await _controller.DisconnectAsync();
+            if (_controller.State.Status == VpnStatus.Connected)
+            {
+                await _controller.DisconnectAsync();
+                await _controller.ConnectAsync();
+            }
             UpdateTray();
         };
         win.Show();

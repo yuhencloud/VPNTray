@@ -17,29 +17,22 @@ A Windows 10/11 system-tray app that wraps [OpenConnect](https://www.infradead.o
 
 - **Windows 10 or 11, x64**
 - **.NET 8 Desktop Runtime** (to run a framework-dependent build) — or build a self-contained release.
-- The four **native binaries** below, placed in the app's `Resources/` folder (see [Native binaries](#native-binaries) — these are **not** shipped in this repo).
 - Administrator rights on the machine (the app requests elevation at launch).
+
+The native VPN binaries (openconnect + Wintun + scripts) are **already bundled** — see [Native binaries](#native-binaries). Nothing extra to install.
 
 ## Native binaries
 
-VPNTray loads four native files from the `Resources/` folder next to `VPNTray.exe`:
+The native files VPNTray needs at runtime are **committed in `src/VPNTray/Resources/`** and copied next to `VPNTray.exe` on build — the app is runnable out of the box:
 
-| File | Where it comes from |
-| ---- | ------------------- |
-| `openconnect.exe` | An official **OpenConnect Windows build, v9.x or newer**. v9.x bundles the Wintun driver, so no separate driver install is needed. |
-| `wintun.dll` | Ships alongside `openconnect.exe` in the same OpenConnect v9.x build. |
-| `vpnc-script-win.js` | The default VPN-configuration script bundled with that OpenConnect build. |
-| `vpnc-script-win--no-dns.js` | A copy of `vpnc-script-win.js` with its **DNS-configuration section removed**. Used when "Skip DNS modification" is enabled so VPNTray does not touch your system DNS settings. |
+| File | What it is |
+| ---- | ---------- |
+| `openconnect.exe` + its `lib*.dll` / `zlib1.dll` set | OpenConnect **v8.10** (anyconnect/DTLS/ESP), from the [horar/openconnect](https://github.com/horar/openconnect) prebuilt MinGW64 build, SHA-512 verified. |
+| `wintun.dll` | Wintun **0.14.1** (amd64), official build from [wintun.net](https://www.wintun.net/). |
+| `vpnc-script-win.js` | The VPN-configuration script, version-matched to the openconnect build. |
+| `vpnc-script-win--no-dns.js` | The same script with its **DNS-configuration block disabled** — used when "Skip DNS modification" is enabled (the default) so VPNTray does not touch your system DNS settings. |
 
-> ⚠️ **These four files are intentionally NOT committed to this repository.** Until all four are present in `Resources/`, the in-app dependency check shows red and connections will not work.
-
-**To obtain them:**
-
-1. Download an official OpenConnect Windows build (v9.x or newer).
-2. Copy `openconnect.exe`, `wintun.dll`, and `vpnc-script-win.js` into `Resources/`.
-3. Make a copy of `vpnc-script-win.js` named `vpnc-script-win--no-dns.js`, open it, and remove (or comment out) the DNS-configuration block.
-
-See [`src/VPNTray/Resources/README.md`](src/VPNTray/Resources/README.md) for the full description. The build still succeeds when these files are absent — only runtime VPN connectivity is affected.
+See [`src/VPNTray/Resources/README.md`](src/VPNTray/Resources/README.md) for sources, versions, licenses, and how to swap in a newer openconnect. The `.csproj` bundles whatever is in `Resources/` next to the built exe.
 
 ## Build from source
 
@@ -49,7 +42,7 @@ cd VPNTray
 dotnet build -c Release
 ```
 
-The built app lands in `src/VPNTray/bin/Release/net8.0-windows/`. Drop your four native binaries into the `Resources/` subfolder next to `VPNTray.exe` (the `.csproj` copies whatever is in `src/VPNTray/Resources/` to the output on build, so you can also place them there before building).
+The built app lands in `src/VPNTray/bin/Release/net8.0-windows/`, with the bundled native binaries already copied into its `Resources/` subfolder next to `VPNTray.exe`.
 
 Run `VPNTray.exe`. Because the app is marked `requireAdministrator`, Windows will prompt for elevation (UAC) on every launch — accept it.
 
@@ -122,7 +115,7 @@ The status dot on the tray icon shows state:
 ## FAQ
 
 **Connection immediately fails / the dependency check is red.**
-Make sure all four native binaries are present in `Resources/` (see [Native binaries](#native-binaries)). Use **Check Dependencies…** to re-verify.
+The native binaries are bundled, so these checks are normally green. If a row is red, a file may be missing or corrupt (see [Native binaries](#native-binaries)). Use **Check Dependencies…** to re-verify.
 
 **Authentication fails.**
 Re-check your TOTP secret and password prefix in Settings. The 6-digit code is derived from the secret, so a wrong secret means a wrong code.

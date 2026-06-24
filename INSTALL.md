@@ -8,33 +8,26 @@ Windows 10/11 系统托盘小工具，封装 `openconnect` 连接 Cisco AnyConne
 
 - **Windows 10 或 11，x64**
 - **.NET 8 桌面运行时**（运行依赖框架的构建时需要），或自行打包 self-contained 版本
-- 四个**原生二进制文件**（见下面[原生二进制文件](#原生二进制文件)），放进 `Resources/` 文件夹 —— **本仓库不附带这些文件**
 - 本机管理员权限（app 启动时会请求 UAC 提权）
+
+原生 VPN 二进制（openconnect + Wintun + 脚本）**已经随仓库一起带了**（见下面[原生二进制文件](#原生二进制文件)），不用额外装东西。
 
 ## 原生二进制文件
 
-VPNTray 会从 `VPNTray.exe` 同级的 `Resources/` 文件夹加载四个原生文件：
+VPNTray 运行时需要的原生文件**已提交在 `src/VPNTray/Resources/`**，构建时会自动拷到 `VPNTray.exe` 同级的 `Resources/` 里 —— 开箱即用：
 
-| 文件 | 来源 |
+| 文件 | 是什么 |
 | ---- | ---- |
-| `openconnect.exe` | 官方 **OpenConnect Windows 构建，v9.x 或更新版本**。v9.x 自带 Wintun 驱动，不需要单独装驱动。 |
-| `wintun.dll` | 跟 `openconnect.exe` 在同一个 v9.x 构建里一起提供。 |
-| `vpnc-script-win.js` | 该 OpenConnect 构建自带的默认 VPN 配置脚本。 |
-| `vpnc-script-win--no-dns.js` | `vpnc-script-win.js` 的副本，但**删掉了 DNS 配置那一段**。开启"跳过 DNS 修改"时用这个，让 VPNTray 不去动你系统的 DNS 设置。 |
+| `openconnect.exe` + 它的 `lib*.dll` / `zlib1.dll` 一套依赖 | OpenConnect **v8.10**（anyconnect/DTLS/ESP），来自 [horar/openconnect](https://github.com/horar/openconnect) 预编译 MinGW64 构建，已校验 SHA-512。 |
+| `wintun.dll` | Wintun **0.14.1**（amd64），[wintun.net](https://www.wintun.net/) 官方构建。 |
+| `vpnc-script-win.js` | VPN 配置脚本，与 openconnect 构建版本匹配。 |
+| `vpnc-script-win--no-dns.js` | 同一脚本，但**禁用了 DNS 配置那一段**。开启"跳过 DNS 修改"（默认）时用这个，让 VPNTray 不去动你系统的 DNS 设置。 |
 
-> ⚠️ **这四个文件故意不提交到仓库里。** 四个文件没全部放到 `Resources/` 之前，app 内的依赖检查会一直红叉，也连不上 VPN。
-
-**怎么获取：**
-
-1. 下载官方 OpenConnect Windows 构建（v9.x 或更新版本）。
-2. 把 `openconnect.exe`、`wintun.dll`、`vpnc-script-win.js` 拷进 `Resources/`。
-3. 把 `vpnc-script-win.js` 复制一份命名为 `vpnc-script-win--no-dns.js`，打开它，把 DNS 配置那一段删掉（或注释掉）。
-
-详见 [`src/VPNTray/Resources/README.md`](src/VPNTray/Resources/README.md)。缺这些文件不影响编译 —— 只影响运行时能不能真正连上。
+> 💡 所有 `lib*.dll` / `zlib1.dll` 是 `openconnect.exe` 的运行时依赖，必须和它放在同一个 `Resources/` 文件夹里，否则 openconnect 起不来。详见 [`src/VPNTray/Resources/README.md`](src/VPNTray/Resources/README.md)（含来源、版本、许可证，以及怎么换更新的 openconnect）。
 
 ## 安装（从源码构建）
 
-跟 macOS 版不一样，**Windows 版不需要 Homebrew，openconnect 是放在 `Resources/` 里随 app 一起带的**（你自己放进去）。
+跟 macOS 版不一样，**Windows 版不需要 Homebrew，openconnect 已经放在 `Resources/` 里随 app 一起带了**，构建即可用。
 
 ```powershell
 git clone <仓库地址>
@@ -42,7 +35,7 @@ cd VPNTray
 dotnet build -c Release
 ```
 
-构建产物在 `src/VPNTray/bin/Release/net8.0-windows/`。把四个原生二进制文件放进 `VPNTray.exe` 旁边的 `Resources/` 子文件夹（`.csproj` 会在构建时把 `src/VPNTray/Resources/` 里的内容拷到输出目录，所以也可以在构建前就放进去）。
+构建产物在 `src/VPNTray/bin/Release/net8.0-windows/`，原生二进制已自动拷到它旁边的 `Resources/` 子文件夹。
 
 ## 首次启动（UAC 提权）
 
@@ -58,7 +51,7 @@ dotnet build -c Release
 欢迎页，介绍必备条件，点 **Next** 继续。
 
 ### Step 2 · Dependency Check
-检查 `Resources/` 里四个原生二进制文件是否齐全。任一项红叉说明对应文件缺失 —— 按上面[原生二进制文件](#原生二进制文件)补齐后点重新检查，全绿才能继续。
+检查 `Resources/` 里的原生二进制文件是否齐全。原生文件已随仓库附带，正常情况下全绿；若有红叉，说明对应文件缺失或损坏（参见[原生二进制文件](#原生二进制文件)），修好后点重新检查，全绿才能继续。
 
 ### Step 3 · Credentials
 填你**自己 VPN** 的信息：
@@ -134,7 +127,7 @@ VPN 管理员一般给你一张 QR 码图片。**VPNTray 要的是 QR 码里的 
 ## 常见问题
 
 ### Q1. 一连就 Failed / 依赖检查红叉？
-确认 `Resources/` 里四个原生二进制文件都齐了（见[原生二进制文件](#原生二进制文件)），然后菜单点 **Check Dependencies…** 重新检查。
+确认 `Resources/` 里的原生二进制文件齐全（已随仓库附带，正常应全绿；见[原生二进制文件](#原生二进制文件)），然后菜单点 **Check Dependencies…** 重新检查。
 
 ### Q2. 提示认证失败？
 去 Settings 重新核对 **TOTP secret** 和 **Password prefix**。6 位动态码是从密钥推算的，密钥错了码就错。

@@ -54,12 +54,23 @@ public sealed class OpenConnectProcess : IOpenConnectProcessRunning
             if (e.Data is null) return;
             lock (_lock) { _stderr.AppendLine(e.Data); }
         };
+        p.OutputDataReceived += (_, _) => { }; // discard stdout; BeginOutputReadLine keeps the pipe drained
         p.Start();
         p.BeginErrorReadLine();
+        p.BeginOutputReadLine();
         // Do NOT log the password.
         AppLogger.Shared.Info("openconnect spawned");
-        p.StandardInput.WriteLine(password);
-        p.StandardInput.Close();
+        try
+        {
+            p.StandardInput.WriteLine(password);
+            p.StandardInput.Close();
+        }
+        catch
+        {
+            try { if (!p.HasExited) p.Kill(entireProcessTree: true); } catch { /* ignore */ }
+            try { p.Dispose(); } catch { /* ignore */ }
+            throw;
+        }
         _process = p;
     }
 

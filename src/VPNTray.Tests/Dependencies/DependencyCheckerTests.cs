@@ -25,10 +25,37 @@ public class DependencyCheckerTests
     [Fact]
     public void Check_VersionProbeFails_WhenRunnerReturnsNonZero()
     {
-        var checker = new DependencyChecker(new FakeRunner { ExitToReturn = 1 });
-        var statuses = checker.Check(new VpnConfig());
-        var versionRow = statuses.First(s => s.Name.Contains("runs", StringComparison.OrdinalIgnoreCase));
-        Assert.False(versionRow.Passed);
-        Assert.NotNull(versionRow.FixHint);
+        var exe = Path.Combine(Path.GetTempPath(), "vpntray-oc-" + Guid.NewGuid().ToString("N") + ".exe");
+        File.WriteAllText(exe, "");
+        try
+        {
+            var config = new VpnConfig { OpenconnectPath = exe };
+            var statuses = new DependencyChecker(new FakeRunner { ExitToReturn = 1 }).Check(config);
+            var versionRow = statuses.First(s => s.Name.Contains("runs", StringComparison.OrdinalIgnoreCase));
+            Assert.False(versionRow.Passed);
+            Assert.NotNull(versionRow.FixHint);
+        }
+        finally
+        {
+            File.Delete(exe);
+        }
+    }
+
+    [Fact]
+    public void Check_VersionProbePasses_WhenExeExistsAndRunnerSucceeds()
+    {
+        var exe = Path.Combine(Path.GetTempPath(), "vpntray-oc-" + Guid.NewGuid().ToString("N") + ".exe");
+        File.WriteAllText(exe, "");
+        try
+        {
+            var config = new VpnConfig { OpenconnectPath = exe };
+            var statuses = new DependencyChecker(new FakeRunner { ExitToReturn = 0 }).Check(config);
+            var versionRow = statuses.First(s => s.Name.Contains("runs", StringComparison.OrdinalIgnoreCase));
+            Assert.True(versionRow.Passed);
+        }
+        finally
+        {
+            File.Delete(exe);
+        }
     }
 }

@@ -101,6 +101,16 @@ public class VpnControllerTests
     }
 
     [Fact]
+    public async Task StopForShutdown_StopsOpenConnect()
+    {
+        var oc = new FakeOpenConnect { NextHandshake = new(true, null) };
+        var c = new VpnController(oc, new FakeNetworkMonitor(), () => Good());
+        await c.ConnectAsync();
+        c.StopForShutdown();
+        Assert.True(oc.StopCount >= 1);
+    }
+
+    [Fact]
     public void MarkSetupIncomplete_SetsSetupIncompleteState()
     {
         var c = new VpnController(new FakeOpenConnect(), new FakeNetworkMonitor(), () => new VpnConfig());

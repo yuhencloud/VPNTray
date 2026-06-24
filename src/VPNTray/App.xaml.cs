@@ -29,6 +29,7 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _coordinator?.StopForShutdown();
         _instanceMutex?.Dispose();
         base.OnExit(e);
     }

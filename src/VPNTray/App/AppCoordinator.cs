@@ -21,8 +21,11 @@ public sealed class AppCoordinator
         var openConnect = new OpenConnectProcess();
         var network = new NetworkMonitor();
         _controller = new VpnController(openConnect, network, () => _store.Load());
-        _controller.PropertyChanged += (_, _) => Application.Current.Dispatcher.Invoke(UpdateTray);
+        _controller.PropertyChanged += OnControllerPropertyChanged;
     }
+
+    private void OnControllerPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        => Application.Current.Dispatcher.Invoke(UpdateTray);
 
     public void Start()
     {
@@ -30,6 +33,7 @@ public sealed class AppCoordinator
         _tray = new TaskbarIcon { ToolTipText = "VPNTray" };
         BuildMenu();
         _controller.StartNetworkMonitoring();
+        Application.Current.SessionEnding += (_, _) => StopForShutdown();
 
         var config = _store.Load();
         if (config is null || !config.IsConfigured)
@@ -66,6 +70,8 @@ public sealed class AppCoordinator
 
     private void UpdateTray()
     {
+        if (_tray is null) return;
+
         var status = _controller.State.Status;
         _tray.IconSource = new System.Windows.Media.Imaging.BitmapImage(
             new Uri(StatusIconFactory.IconResourcePath(status)));
@@ -108,10 +114,16 @@ public sealed class AppCoordinator
 
     private void ShowOnboardingAtDeps() => ShowOnboarding();
 
+    public void StopForShutdown()
+    {
+        try { _controller.PropertyChanged -= OnControllerPropertyChanged; } catch { /* ignore */ }
+        _controller.StopForShutdown();
+        try { _tray?.Dispose(); } catch { /* ignore */ }
+    }
+
     private void Quit()
     {
-        try { _controller.DisconnectAsync().Wait(TimeSpan.FromSeconds(3)); } catch { /* ignore */ }
-        _tray.Dispose();
+        StopForShutdown();
         Application.Current.Shutdown();
     }
 }

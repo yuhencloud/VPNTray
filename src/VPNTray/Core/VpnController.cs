@@ -141,6 +141,17 @@ public sealed class VpnController : INotifyPropertyChanged
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Best-effort SYNCHRONOUS stop for app shutdown: kills openconnect and cancels the
+    /// watchdog WITHOUT the async gate, state changes, or PropertyChanged. Idempotent.
+    /// Use only on the exit path where the controller will not be used again.
+    /// </summary>
+    public void StopForShutdown()
+    {
+        try { _watchdog?.Cancel(); _watchdog?.Dispose(); _watchdog = null; } catch { /* ignore */ }
+        try { _openConnect.Stop(); } catch { /* ignore */ }
+    }
+
     public void MarkSetupIncomplete()
         => State = VpnState.Failed(VpnState.SetupIncompletePrefix + " — finish onboarding to connect.");
 

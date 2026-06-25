@@ -1,0 +1,52 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <!-- VPNTray installer: self-contained WPF app (bundles openconnect + Wintun).
+       Per-machine install into Program Files; requires elevation (the app itself
+       also runs as administrator). -->
+  <Package Name="VPNTray"
+           Manufacturer="VPNTray"
+           Version="1.0.0"
+           UpgradeCode="70d706ed-e94d-44b1-a7d1-d3dcc6ce78e7"
+           Scope="perMachine"
+           Compressed="yes">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of VPNTray is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Product icon (extracted from the main exe) shown in Add/Remove Programs. -->
+    <Icon Id="AppIcon" SourceFile="..\dist\VPNTray\VPNTray.exe" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="VPNTray" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="AppMenuDir" Name="VPNTray" />
+    </StandardDirectory>
+    <StandardDirectory Id="DesktopFolder" />
+
+    <Feature Id="Main" Title="VPNTray" Level="1">
+      <!-- Harvest the entire self-contained publish output, preserving subfolders. -->
+      <Files Include="..\dist\VPNTray\**" Directory="INSTALLFOLDER" />
+      <ComponentRef Id="Shortcuts" />
+    </Feature>
+
+    <Component Id="Shortcuts" Directory="AppMenuDir" Guid="*">
+      <Shortcut Id="StartMenuShortcut" Name="VPNTray"
+                Target="[INSTALLFOLDER]VPNTray.exe"
+                WorkingDirectory="INSTALLFOLDER" Icon="AppIcon" />
+      <Shortcut Id="DesktopShortcut" Directory="DesktopFolder" Name="VPNTray"
+                Target="[INSTALLFOLDER]VPNTray.exe"
+                WorkingDirectory="INSTALLFOLDER" Icon="AppIcon" />
+      <RemoveFolder Id="RemoveAppMenuDir" On="uninstall" />
+      <RegistryValue Root="HKLM" Key="Software\VPNTray" Name="installed"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <!-- Wizard UI with install-directory selection. -->
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="license.rtf" />
+  </Package>
+</Wix>

@@ -49,38 +49,36 @@ Run `VPNTray.exe`. Because the app is marked `requireAdministrator`, Windows wil
 ## First launch
 
 1. Double-click `VPNTray.exe`. **Accept the UAC prompt.** The app starts elevated, and a tray icon appears in the notification area.
-2. The **Onboarding wizard** opens automatically on first run:
-   1. **Welcome**
-   2. **Dependency Check** — verifies the four native binaries are present in `Resources/`. Fix any red rows before continuing.
-   3. **Credentials** — username, password prefix, TOTP secret (Base32), gateway, and server certificate pin.
-   4. **Done**
+2. A single **Credentials window** opens automatically on first run. Fill in all five fields — username, password prefix, TOTP secret (Base32), gateway, and server certificate pin — then click **Save**.
 3. Once setup is complete, the full tray menu becomes available.
 
-Until setup is complete, the tray menu only shows **Check Dependencies…** and **Quit**.
+Reopen the window any time with a **single left-click** on the tray icon, or **right-click → Open Settings…**. Until setup is complete, the tray menu only shows **Open Settings…** and **Quit**.
 
-## Extracting your TOTP Base32 secret
+The window also has a **Check tools** button that verifies the bundled native tools (openconnect / wintun / vpnc script) — green checks mean all good. The tools ship with the app, so this is only for troubleshooting a failed connection.
 
-Your VPN administrator typically gives you a QR-code image. VPNTray needs the **Base32 secret text** inside that QR code (not a registered Authenticator app). Extract it locally — do **not** use an online QR decoder, which would upload your VPN credential to a stranger.
+## Importing your TOTP Base32 secret
 
-- **zbar (recommended, fully local):** install [zbar](https://github.com/mchehab/zbar), then run `zbarimg vpn-qr.png`. The output is an `otpauth://totp/...?secret=ABC123...&issuer=...` URI — the value between `secret=` and `&` is your Base32 secret.
-- **Phone camera:** point your phone camera at the QR code; it surfaces the full `otpauth://` URL. Copy the `secret=` portion and send it to your PC.
-- **Password managers:** if you already store the TOTP in 1Password (one-time password field → reveal `otpauth://` URI) or Bitwarden (the "Authenticator key" field is the Base32 secret), copy it from there.
+Your VPN administrator typically gives you an `otpauth://` QR-code image. Two buttons below the TOTP field import it directly — **decoded entirely on your machine, never uploaded anywhere**:
 
-> ⚠️ **Google Authenticator and Microsoft Authenticator do NOT show the secret** — they deliberately hide it. If your secret only lives there with no backup, ask your admin to re-issue a QR code and decode it with zbar.
+- **Import QR image…** — pick the QR-code image file; the secret is recognized and filled in automatically.
+- **Scan screen for QR** — if the QR code is visible on screen (email, chat, browser), the window hides itself, scans all monitors, and fills in the secret.
+
+Both accept a full `otpauth://totp/...?secret=...` QR code as well as a QR code containing just a bare Base32 secret. You can also paste the secret manually.
+
+> ⚠️ **Google Authenticator and Microsoft Authenticator do NOT show the secret** — they deliberately hide it. If your secret only lives there with no backup, ask your admin to re-issue a QR code and import it here.
 
 A valid Base32 secret is uppercase letters and digits 2–7, usually 16–32 characters. **Use your own — never someone else's.**
 
 ## Daily use
 
-Click the tray icon for the menu:
+**Left-click** the tray icon to open the main window; **right-click** for the menu:
 
 | Menu item | Action |
 | --------- | ------ |
 | **Connect** | Generate the TOTP and bring up the VPN tunnel. |
 | **Disconnect** | Tear down the tunnel (and clear the auto-reconnect intent). |
 | **Reconnect** | Disconnect then connect again. |
-| **Open Settings…** | Edit all fields, including Advanced (paths, Skip DNS modification, Launch at login). |
-| **Check Dependencies…** | Re-run the native-binary dependency check. |
+| **Open Settings…** | Open the main window to edit the five credential fields. |
 | **Quit** | Exit the app (disconnecting first if connected). |
 
 The status dot on the tray icon shows state:
@@ -114,8 +112,8 @@ The status dot on the tray icon shows state:
 
 ## FAQ
 
-**Connection immediately fails / the dependency check is red.**
-The native binaries are bundled, so these checks are normally green. If a row is red, a file may be missing or corrupt (see [Native binaries](#native-binaries)). Use **Check Dependencies…** to re-verify.
+**Connection immediately fails.**
+The native binaries are bundled, so this normally just works. If a file under `Resources/` is missing or corrupt (see [Native binaries](#native-binaries)), reinstall or rebuild the app.
 
 **Authentication fails.**
 Re-check your TOTP secret and password prefix in Settings. The 6-digit code is derived from the secret, so a wrong secret means a wrong code.

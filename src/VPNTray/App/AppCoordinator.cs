@@ -15,6 +15,7 @@ public sealed class AppCoordinator
     private readonly VpnController _controller;
     private readonly DependencyChecker _checker = new(new SystemProcessRunner());
     private TaskbarIcon _tray = null!;
+    private SettingsWindow? _settings;
 
     public AppCoordinator()
     {
@@ -31,7 +32,8 @@ public sealed class AppCoordinator
     {
         _startup.ApplyPreference();
         _tray = new TaskbarIcon { ToolTipText = "VPNTray" };
-        BuildMenu();
+        _tray.TrayLeftMouseUp += (_, _) => ShowSettings();   // single left-click opens the main window
+        BuildMenu();                                          // right-click shows the context menu
         _controller.StartNetworkMonitoring();
         Application.Current.SessionEnding += (_, _) => StopForShutdown();
 
@@ -39,7 +41,7 @@ public sealed class AppCoordinator
         if (config is null || !config.IsConfigured)
         {
             _controller.MarkSetupIncomplete();
-            ShowOnboarding();
+            ShowSettings();
         }
         UpdateTray();
     }
@@ -61,7 +63,6 @@ public sealed class AppCoordinator
         Add("Reconnect", async (_, _) => { await _controller.DisconnectAsync(); await _controller.ConnectAsync(); });
         menu.Items.Add(new System.Windows.Controls.Separator());
         Add("Open Settings…", (_, _) => ShowSettings());
-        Add("Check Dependencies…", (_, _) => ShowOnboardingAtDeps());
         menu.Items.Add(new System.Windows.Controls.Separator());
         Add("Quit", (_, _) => Quit());
 
@@ -77,7 +78,8 @@ public sealed class AppCoordinator
             new Uri(StatusIconFactory.IconResourcePath(status)));
         _tray.ToolTipText = $"VPNTray — {status}";
 
-        // Setup-incomplete lock-down: hide connect/disconnect/reconnect/settings.
+        // Setup-incomplete lock-down: hide connect/disconnect/reconnect.
+        // Open Settings stays visible so the user can always reach configuration.
         bool incomplete = _controller.State.IsSetupIncomplete;
         var items = _tray.ContextMenu.Items;
         foreach (var obj in items)
@@ -85,7 +87,7 @@ public sealed class AppCoordinator
             if (obj is System.Windows.Controls.MenuItem mi)
             {
                 var header = mi.Header?.ToString() ?? "";
-                if (header is "Connect" or "Disconnect" or "Reconnect" or "Open Settings…")
+                if (header is "Connect" or "Disconnect" or "Reconnect")
                     mi.Visibility = incomplete ? Visibility.Collapsed : Visibility.Visible;
             }
         }
@@ -93,9 +95,19 @@ public sealed class AppCoordinator
 
     private void ShowSettings()
     {
-        var win = new SettingsWindow(_store);
+        // Single window only: if it is already open, just bring it to the front.
+        if (_settings is not null)
+        {
+            _settings.Activate();
+            return;
+        }
+
+        var win = new SettingsWindow(_store, _checker);
+        _settings = win;
+        win.Closed += (_, _) => _settings = null;
         win.Saved += async () =>
         {
+            _controller.MarkConfigured();
             if (_controller.State.Status == VpnStatus.Connected)
             {
                 await _controller.DisconnectAsync();
@@ -106,17 +118,6 @@ public sealed class AppCoordinator
         win.Show();
         win.Activate();
     }
-
-    private void ShowOnboarding()
-    {
-        var win = new OnboardingWindow(_store, _checker);
-        win.Completed += () => { _controller.MarkConfigured(); UpdateTray(); };
-        win.Cancelled += () => { if (!( _store.Load()?.IsConfigured ?? false)) _controller.MarkSetupIncomplete(); };
-        win.Show();
-        win.Activate();
-    }
-
-    private void ShowOnboardingAtDeps() => ShowOnboarding();
 
     public void StopForShutdown()
     {

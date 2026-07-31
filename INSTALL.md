@@ -43,58 +43,38 @@ dotnet build -c Release
 
 > 💡 **关于提权**：这是 Windows 版相对 macOS 版的关键区别。mac 版需要配置 `sudo NOPASSWD` 免密规则；Windows 版则是整个 app 以管理员身份运行 —— 启动时确认**一次** UAC，之后连接 / 断开 / 改路由都不再需要二次提权。
 
-放行后托盘区会出现 VPNTray 图标，并自动弹出 Onboarding 向导。
+放行后托盘区会出现 VPNTray 图标，并自动弹出配置窗口（Credentials）。
 
-## 首次启动引导（Onboarding 四步）
+## 配置（一个 Credentials 窗口）
 
-### Step 1 · Welcome
-欢迎页，介绍必备条件，点 **Next** 继续。
-
-### Step 2 · Dependency Check
-检查 `Resources/` 里的原生二进制文件是否齐全。原生文件已随仓库附带，正常情况下全绿；若有红叉，说明对应文件缺失或损坏（参见[原生二进制文件](#原生二进制文件)），修好后点重新检查，全绿才能继续。
-
-### Step 3 · Credentials
-填你**自己 VPN** 的信息：
+首次启动 app 自动弹出配置窗口；之后随时可以**单击托盘图标**（左键单击），或**右键**菜单点 **Open Settings…** 再打开。整个 app 只有这一个窗口，填你**自己 VPN** 的信息：
 
 - **Username**：VPN 登录用户名（例如 `zhangsan.li`）
 - **Password prefix**：固定密码前缀（VPN 管理员给的，很多公司部署里所有人共用同一个前缀）。实际连接时密码 = 这个前缀 + 当前 6 位 TOTP 动态码，app 自动拼好通过 stdin 喂给 openconnect，你不用手输动态码。
-- **TOTP secret (Base32)**：**你自己的** TOTP 密钥（从管理员发的 QR 码里提取，见下面[如何获取 TOTP 密钥](#如何获取-totp-密钥)）。一串大写字母 + 数字 2–7 的 Base32 字符串，通常 16–32 位，**绝对不要用别人的**。
+- **TOTP secret (Base32)**：**你自己的** TOTP 密钥，**推荐直接导入 QR 码**（见下面[如何导入 TOTP 密钥](#如何导入-totp-密钥)），也可以手动粘贴 Base32 字符串（大写字母 + 数字 2–7，通常 16–32 位）。**绝对不要用别人的**。
 - **Gateway**：你的 VPN 服务器地址（占位符，必须换成真实值）。
 - **Server cert pin**：服务器证书 SHA-256 指纹（占位符，必须换成真实值）。
 
-填完点保存进入 Step 4。
+五个字段都填好点 **Save**。设置完整后托盘完整菜单（Connect / Disconnect / Reconnect）才会出现。
 
-### Step 4 · Done
-完成，回到托盘。设置完整后托盘完整菜单才会出现。
+> 💡 设置没填完时，托盘菜单只显示 **Open Settings…** 和 **Quit** 两项。
 
-> 💡 设置没填完时，托盘菜单只显示 **Check Dependencies…** 和 **Quit** 两项。
+窗口底部还有一个 **Check tools** 按钮：点它检查随包附带的原生工具（openconnect / wintun / vpnc 脚本）是否齐全，绿色对勾表示正常。原生工具已随 app 打包，正常无需操作，仅在连接异常时用来排查。
 
-#### 如何获取 TOTP 密钥
+#### 如何导入 TOTP 密钥
 
-VPN 管理员一般给你一张 QR 码图片。**VPNTray 要的是 QR 码里的 Base32 密钥文本本身**（不是用手机扫码注册 Authenticator）。请在本地提取，**不要用在线 QR 解码网站**（等于把 VPN 凭证上传给陌生服务）。
+VPN 管理员一般给你一张 `otpauth://` QR 码图片。TOTP 密钥输入框下方有两个按钮，**全程本地解析，不经过任何在线服务**：
 
-**方法 A · zbar 命令行（推荐，本地处理）**
-1. 把 QR 码图片存到本地，比如 `vpn-qr.png`
-2. 装 [zbar](https://github.com/mchehab/zbar)，执行：
-   ```
-   zbarimg vpn-qr.png
-   ```
-3. 输出形如 `otpauth://totp/example:your.name?secret=ABCDEFGHIJKLMNOP2345&issuer=example`
-4. **`secret=` 后面、`&` 前面那段就是你要的 TOTP 密钥**，复制粘贴进去
+- **Import QR image…**：选择保存在本地的 QR 码图片文件，自动识别并填入密钥。
+- **Scan screen for QR**：QR 码显示在屏幕上（邮件、聊天窗口、网页里）时点这个，窗口会暂时隐藏并扫描全部屏幕，识别后自动填入。
 
-**方法 B · 手机相机**
-用手机相机对准 QR 码，会弹出完整的 `otpauth://...` URL，截取 `secret=` 后面的部分发回电脑。
+两种方式都支持完整的 `otpauth://totp/...?secret=...` QR 码，也兼容内容只是一串裸 Base32 密钥的 QR 码。
 
-**方法 C · 密码管理器**
-如果你已经把这个 TOTP 存在密码管理器里：
-- **1Password**：对应条目 → "一次性密码"字段 → 查看 `otpauth://` URI，里面有 `secret=`
-- **Bitwarden**："Authenticator key" 字段直接就是 Base32 密钥
-
-> ⚠️ **Google Authenticator / Microsoft Authenticator 看不到密钥明文** —— 它们出于安全故意禁用了导出。如果密钥只在这两个 app 里没有备份，只能请管理员重新签发一张 QR 码，用方法 A 重新解码。
+> ⚠️ **Google Authenticator / Microsoft Authenticator 看不到密钥明文** —— 它们出于安全故意禁用了导出。如果密钥只在这两个 app 里没有备份，请管理员重新签发一张 QR 码再导入。
 
 ## 日常使用
 
-点击托盘图标弹出菜单：
+**左键单击**托盘图标打开主界面（Credentials 配置窗口）；**右键单击**弹出菜单：
 
 | 菜单项 | 作用 |
 | ------ | ---- |
@@ -102,7 +82,6 @@ VPN 管理员一般给你一张 QR 码图片。**VPNTray 要的是 QR 码里的 
 | **Disconnect** | 断开隧道（同时清除自动重连意图）|
 | **Reconnect** | 先断开再连 |
 | **Open Settings…** | 修改所有字段，包括 Advanced（路径、跳过 DNS 修改、开机自启）|
-| **Check Dependencies…** | 重新检查原生二进制依赖 |
 | **Quit** | 退出 app（连着的话先断开）|
 
 托盘图标上的状态小圆点：
@@ -112,7 +91,7 @@ VPN 管理员一般给你一张 QR 码图片。**VPNTray 要的是 QR 码里的 
 - ⚫ **灰色**：未连接
 
 ### 修改配置
-菜单点 **Open Settings…** 打开设置窗口，可以改所有字段（用户名、密码前缀、TOTP 密钥、网关、证书指纹），Advanced 区还有 openconnect / vpnc-script 路径、**Skip DNS modification（跳过 DNS 修改）** 开关、**Launch at login（开机自启）** 开关。
+左键单击托盘图标，或右键菜单点 **Open Settings…**，打开主界面，可以改全部五个字段（用户名、密码前缀、TOTP 密钥、网关、证书指纹），底部 **Check tools** 按钮用来排查随包原生工具。
 
 ### 退出
 菜单点 **Quit**。如果当前连着 VPN，会先断开再退出，不会留下僵尸 `openconnect.exe` 进程。
@@ -126,8 +105,8 @@ VPN 管理员一般给你一张 QR 码图片。**VPNTray 要的是 QR 码里的 
 
 ## 常见问题
 
-### Q1. 一连就 Failed / 依赖检查红叉？
-确认 `Resources/` 里的原生二进制文件齐全（已随仓库附带，正常应全绿；见[原生二进制文件](#原生二进制文件)），然后菜单点 **Check Dependencies…** 重新检查。
+### Q1. 一连就 Failed？
+确认 `Resources/` 里的原生二进制文件齐全（已随仓库附带；见[原生二进制文件](#原生二进制文件)）。文件缺失或损坏的话重装 / 重新构建一次即可。
 
 ### Q2. 提示认证失败？
 去 Settings 重新核对 **TOTP secret** 和 **Password prefix**。6 位动态码是从密钥推算的，密钥错了码就错。
@@ -160,7 +139,6 @@ VPN 管理员一般给你一张 QR 码图片。**VPNTray 要的是 QR 码里的 
 ## 暂未支持（v1 范围外）
 
 - 自动更新（auto-update）
-- TOTP 密钥的 **QR 码图片导入**（目前请用 zbar 等提取 Base32 文本再粘贴）
 
 ## 反馈
 

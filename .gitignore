@@ -4,3 +4,6 @@ obj/
 config.json
 .superpowers/
 dist/
+
+# OMC tooling
+.omc/

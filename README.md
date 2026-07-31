@@ -49,8 +49,8 @@ Run `VPNTray.exe`. Because the app is marked `requireAdministrator`, Windows wil
 ## First launch
 
 1. Double-click `VPNTray.exe`. **Accept the UAC prompt.** The app starts elevated, and a tray icon appears in the notification area.
-2. A single **Credentials window** opens automatically on first run. Fill in all five fields — username, password prefix, TOTP secret (Base32), gateway, and server certificate pin — then click **Save**.
-3. Once setup is complete, the full tray menu becomes available.
+2. A single **Credentials window** opens automatically on first run. Fill in all five fields — username, password prefix, TOTP secret (Base32), gateway, and server certificate pin — then click **Save** (the window stays open).
+3. Use the **Connect** button at the top of the window to bring up the VPN right there — it shows **Connecting…**, then **Disconnect** once connected. No need to go to the tray. The tray menu's Connect / Disconnect / Reconnect still work too.
 
 Reopen the window any time with a **single left-click** on the tray icon, or **right-click → Open Settings…**. Until setup is complete, the tray menu only shows **Open Settings…** and **Quit**.
 

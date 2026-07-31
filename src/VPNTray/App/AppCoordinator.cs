@@ -102,7 +102,7 @@ public sealed class AppCoordinator
             return;
         }
 
-        var win = new SettingsWindow(_store, _checker);
+        var win = new SettingsWindow(_store, _checker, _controller);
         _settings = win;
         win.Closed += (_, _) => _settings = null;
         win.Saved += async () =>

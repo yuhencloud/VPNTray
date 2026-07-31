@@ -55,7 +55,7 @@ dotnet build -c Release
 - **Gateway**：你的 VPN 服务器地址（占位符，必须换成真实值）。
 - **Server cert pin**：服务器证书 SHA-256 指纹（占位符，必须换成真实值）。
 
-五个字段都填好点 **Save**。设置完整后托盘完整菜单（Connect / Disconnect / Reconnect）才会出现。
+五个字段都填好点 **Save**（保存后窗口不关闭）。窗口顶部有连接状态和 **Connect** 按钮：点 Connect 显示 **Connecting…**，连上后变 **Disconnect**，点它断开——**在主界面就能连接 / 断开，不用再去托盘**。托盘右键菜单里的 Connect / Disconnect / Reconnect 依然可用。
 
 > 💡 设置没填完时，托盘菜单只显示 **Open Settings…** 和 **Quit** 两项。
 

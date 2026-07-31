@@ -35,7 +35,22 @@
 
             <!-- Body -->
             <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <StackPanel Margin="16,10,16,16">
+                <StackPanel Margin="16,12,16,16">
+                    <!-- Connection status + Connect/Disconnect -->
+                    <Border Background="{StaticResource CardBgGlass}" CornerRadius="6" Padding="12,10" Margin="0,0,0,14">
+                        <DockPanel>
+                            <Button x:Name="ConnectButton" DockPanel.Dock="Right" Content="Connect"
+                                    Style="{StaticResource PrimaryButton}" MinWidth="104" Padding="16,6"
+                                    Click="OnConnectToggle" VerticalAlignment="Center"/>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Ellipse x:Name="StatusDot" Width="11" Height="11" VerticalAlignment="Center" Fill="#9CA3AF"/>
+                                <TextBlock x:Name="StatusText" Text="Disconnected" Margin="9,0,0,0"
+                                           VerticalAlignment="Center" FontSize="13"
+                                           Foreground="{StaticResource TextPrimary}"/>
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+
                     <TextBlock Text="Credentials" Style="{StaticResource H1}" Margin="0,0,0,2"/>
 
                     <TextBlock Text="Username" Style="{StaticResource FieldLabel}"/>

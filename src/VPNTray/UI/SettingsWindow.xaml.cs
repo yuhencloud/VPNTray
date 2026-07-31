@@ -1,6 +1,9 @@
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 using VPNTray.Config;
+using VPNTray.Core;
 using VPNTray.Dependencies;
 using VPNTray.Util;
 
@@ -10,17 +13,87 @@ public partial class SettingsWindow : Window
 {
     private readonly ConfigStore _store;
     private readonly DependencyChecker _checker;
+    private readonly VpnController _controller;
+
+    // Status-dot colors (match the tray icon set in scripts/make_icons.py).
+    private static readonly Brush DotGreen = Frozen(0x22, 0xC5, 0x5E);
+    private static readonly Brush DotOrange = Frozen(0xF5, 0x9E, 0x0B);
+    private static readonly Brush DotRed = Frozen(0xEF, 0x44, 0x44);
+    private static readonly Brush DotGray = Frozen(0x9C, 0xA3, 0xAF);
 
     public event Action? Saved;
 
-    public SettingsWindow(ConfigStore store, DependencyChecker checker)
+    public SettingsWindow(ConfigStore store, DependencyChecker checker, VpnController controller)
     {
         _store = store;
         _checker = checker;
+        _controller = controller;
         InitializeComponent();
         SourceInitialized += (_, _) => WindowEffects.Apply(this);
         Load();
         WireChangeTracking();
+
+        _controller.PropertyChanged += OnControllerChanged;
+        Closed += (_, _) => _controller.PropertyChanged -= OnControllerChanged;
+        UpdateConnectUi();
+    }
+
+    private static Brush Frozen(byte r, byte g, byte b)
+    {
+        var brush = new SolidColorBrush(Color.FromRgb(r, g, b));
+        brush.Freeze();
+        return brush;
+    }
+
+    private void OnControllerChanged(object? sender, PropertyChangedEventArgs e)
+        => Dispatcher.Invoke(UpdateConnectUi);
+
+    private void UpdateConnectUi()
+    {
+        var status = _controller.State.Status;
+        bool configured = _store.Load()?.IsConfigured ?? false;
+
+        switch (status)
+        {
+            case VpnStatus.Connected:
+                StatusDot.Fill = DotGreen;
+                StatusText.Text = "Connected";
+                ConnectButton.Content = "Disconnect";
+                ConnectButton.IsEnabled = true;
+                break;
+            case VpnStatus.Connecting:
+                StatusDot.Fill = DotOrange;
+                StatusText.Text = "Connecting…";
+                ConnectButton.Content = "Connecting…";
+                ConnectButton.IsEnabled = false;
+                break;
+            case VpnStatus.Failed when _controller.State.IsSetupIncomplete:
+                StatusDot.Fill = DotGray;
+                StatusText.Text = "Not configured";
+                ConnectButton.Content = "Connect";
+                ConnectButton.IsEnabled = configured;
+                break;
+            case VpnStatus.Failed:
+                StatusDot.Fill = DotRed;
+                StatusText.Text = "Failed";
+                ConnectButton.Content = "Connect";
+                ConnectButton.IsEnabled = configured;
+                break;
+            default:
+                StatusDot.Fill = DotGray;
+                StatusText.Text = "Disconnected";
+                ConnectButton.Content = "Connect";
+                ConnectButton.IsEnabled = configured;
+                break;
+        }
+    }
+
+    private async void OnConnectToggle(object sender, RoutedEventArgs e)
+    {
+        if (_controller.State.Status == VpnStatus.Connected)
+            await _controller.DisconnectAsync();
+        else
+            await _controller.ConnectAsync();
     }
 
     private void OnHeaderDrag(object sender, MouseButtonEventArgs e)
@@ -105,8 +178,10 @@ public partial class SettingsWindow : Window
         }
 
         _store.Save(c);
+        SaveButton.IsEnabled = false;
+        // Keep the window open so the user can connect from here.
         Saved?.Invoke();
-        Close();
+        UpdateConnectUi();
     }
 
     private void OnCancel(object sender, RoutedEventArgs e) => Close();

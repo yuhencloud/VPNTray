@@ -56,8 +56,8 @@
                     <TextBlock Text="Username" Style="{StaticResource FieldLabel}"/>
                     <TextBox x:Name="UsernameBox"/>
 
-                    <TextBlock Text="Password prefix" Style="{StaticResource FieldLabel}"/>
-                    <PasswordBox x:Name="PrefixBox"/>
+                    <TextBlock Text="Password" Style="{StaticResource FieldLabel}"/>
+                    <PasswordBox x:Name="PwdBox"/>
 
                     <TextBlock Text="TOTP secret (Base32)" Style="{StaticResource FieldLabel}"/>
                     <PasswordBox x:Name="TotpBox"/>

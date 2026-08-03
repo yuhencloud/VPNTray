@@ -22,6 +22,53 @@ public class HandshakeAnalyzerTests
     }
 
     [Fact]
+    public void Evaluate_AuthGaveUpMarker_ReturnsFailedWithFriendlyReason()
+    {
+        var h = HandshakeAnalyzer.Evaluate("Failed to complete authentication",
+            processAlive: true, gracePassed: true, childConfirmedAlive: true);
+        Assert.NotNull(h);
+        Assert.False(h!.Connected);
+        Assert.Contains("Authentication failed", h.Reason);
+    }
+
+    // Shape of a real stale-pin failure, with the gateway host and pin replaced by
+    // placeholders. The point is that openconnect prints BOTH a cert complaint and
+    // "Failed to complete authentication", so the cert cause must win — otherwise the
+    // app tells the user to check a password that was never the problem.
+    private const string GatewayPin = "pin-sha256:9Xk2QpLmR4tZvN8yB1cE7wJhF0sD6aG3uK5oI2nT4bQ=";
+
+    private const string PinMismatchStderr = $"""
+        None of the 1 fingerprint(s) specified via --servercert match server's certificate: {GatewayPin}
+        SSL connection failure: Error in the certificate.
+        Failed to open HTTPS connection to vpn.example.com
+        Failed to complete authentication
+        """;
+
+    [Fact]
+    public void Evaluate_PinMismatch_BlamesTheCertPin_NotThePassword()
+    {
+        var h = HandshakeAnalyzer.Evaluate(PinMismatchStderr,
+            processAlive: false, gracePassed: false, childConfirmedAlive: false);
+
+        Assert.NotNull(h);
+        Assert.False(h!.Connected);
+        Assert.Contains("Server cert pin", h.Reason);
+        Assert.DoesNotContain("password", h.Reason, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("TOTP", h.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Evaluate_PinMismatch_SurfacesTheGatewaysActualPin()
+    {
+        var h = HandshakeAnalyzer.Evaluate(PinMismatchStderr, false, false, false);
+        Assert.Contains(GatewayPin, h!.Reason);
+    }
+
+    [Fact]
+    public void FriendlyReason_PinMismatch_AlsoBlamesTheCertPin()
+        => Assert.Contains("Server cert pin", HandshakeAnalyzer.FriendlyReason(PinMismatchStderr));
+
+    [Fact]
     public void Evaluate_CertFailureMarker_MentionsCertPin()
     {
         var h = HandshakeAnalyzer.Evaluate("Certificate verification failure", true, false, true);

@@ -1,14 +1,32 @@
+using System.Text.RegularExpressions;
+
 namespace VPNTray.Core;
 
 public sealed record OpenConnectHandshake(bool Connected, string? Reason);
 
 public static class HandshakeAnalyzer
 {
+    private const string PinMismatchMarker = "match server's certificate";
+
     private static readonly string[] SuccessMarkers =
         { "Connected as", "CSTP connected", "Established DTLS", "ESP session established" };
 
+    /// <remarks>
+    /// Order matters: the first marker found wins. Certificate problems must come before
+    /// "Failed to complete authentication", because openconnect prints that line after a
+    /// rejected cert too — matching it first would blame the user's password for what is
+    /// really a stale cert pin.
+    /// </remarks>
     private static readonly string[] FailureMarkers =
-        { "Login failed", "authentication failure", "Certificate verification failure" };
+    {
+        "Login failed", "authentication failure",
+        PinMismatchMarker, "Certificate verification failure", "Error in the certificate",
+        // Emitted when auth gives up — including when --non-inter aborts on a form we
+        // cannot answer (e.g. the gateway also wants an auth group or a PIN change).
+        "Failed to complete authentication",
+    };
+
+    private static readonly Regex ServerPin = new(@"pin-sha256:[A-Za-z0-9+/]+=*", RegexOptions.Compiled);
 
     /// <summary>
     /// Decide the handshake outcome from the current stderr snapshot, or return
@@ -44,12 +62,31 @@ public static class HandshakeAnalyzer
 
     private static string MapMarker(string marker, string fullStderr) => marker switch
     {
-        "Login failed" or "authentication failure" =>
-            "Authentication failed — please check your TOTP secret or password prefix.",
-        "Certificate verification failure" =>
-            "Server certificate verification failed. The gateway cert may have rotated — update the pin in Settings.",
+        "Login failed" or "authentication failure" or "Failed to complete authentication" =>
+            "Authentication failed — please check your password and TOTP secret.",
+        PinMismatchMarker => PinMismatchReason(fullStderr),
+        "Certificate verification failure" or "Error in the certificate" =>
+            "Server certificate verification failed. The gateway cert may have rotated — update Server cert pin in Settings.",
         _ => Tail(fullStderr, 200),
     };
+
+    /// <summary>
+    /// openconnect prints the pin it actually saw on the mismatch line, which is exactly what
+    /// the user needs to paste into Settings — so hand it over instead of making them dig
+    /// through the log for it.
+    /// </summary>
+    private static string PinMismatchReason(string fullStderr)
+    {
+        const string baseMessage = "Server cert pin does not match this gateway.";
+        var line = fullStderr
+            .Split('\n')
+            .FirstOrDefault(l => l.Contains(PinMismatchMarker, StringComparison.Ordinal));
+
+        var pin = line is null ? Match.Empty : ServerPin.Match(line);
+        return pin.Success
+            ? $"{baseMessage} The gateway presents {pin.Value} — update Server cert pin in Settings."
+            : $"{baseMessage} Update Server cert pin in Settings.";
+    }
 
     private static string Tail(string text, int chars)
     {

@@ -107,7 +107,7 @@ public partial class SettingsWindow : Window
     {
         var c = _store.Load() ?? new VpnConfig();
         UsernameBox.Text = c.Username;
-        PrefixBox.Password = c.PasswordPrefix;
+        PwdBox.Password = c.Password;
         TotpBox.Password = c.TotpSecret;
         GatewayBox.Text = c.Gateway;
         PinBox.Text = c.ServerCertPin;
@@ -119,7 +119,7 @@ public partial class SettingsWindow : Window
         UsernameBox.TextChanged += (_, _) => Enable();
         GatewayBox.TextChanged += (_, _) => Enable();
         PinBox.TextChanged += (_, _) => Enable();
-        PrefixBox.PasswordChanged += (_, _) => Enable();
+        PwdBox.PasswordChanged += (_, _) => Enable();
         TotpBox.PasswordChanged += (_, _) => Enable();
     }
 
@@ -144,7 +144,9 @@ public partial class SettingsWindow : Window
 
     private void OnCheckTools(object sender, RoutedEventArgs e)
     {
-        var statuses = _checker.Check(_store.Load() ?? new VpnConfig());
+        // Sanitized() so the report reflects the paths Connect will really use, including
+        // the bundled fallback when the saved absolute path no longer exists.
+        var statuses = _checker.Check((_store.Load() ?? new VpnConfig()).Sanitized());
         DepsList.ItemsSource = statuses
             .Select(s => new DependencyRow { Passed = s.Passed, Name = s.Name, Hint = s.FixHint })
             .ToList();
@@ -159,20 +161,21 @@ public partial class SettingsWindow : Window
         var c = new VpnConfig
         {
             Username = UsernameBox.Text,
-            PasswordPrefix = PrefixBox.Password,
+            Password = PwdBox.Password,
             TotpSecret = TotpBox.Password,
             Gateway = GatewayBox.Text,
             ServerCertPin = PinBox.Text,
             OpenconnectPath = existing.OpenconnectPath,
             VpncScriptPath = existing.VpncScriptPath,
             SkipDnsModification = existing.SkipDnsModification,
-            SchemaVersion = existing.SchemaVersion,
+            // SchemaVersion intentionally left at the default: saving rewrites the file in
+            // the current schema, so a migrated v1 config must not keep claiming v1.
         }.Sanitized();
 
         if (!c.IsConfigured)
         {
             MessageBox.Show(this,
-                "Please fill in all five fields (username, password prefix, TOTP secret, gateway, cert pin).",
+                "Please fill in all five fields (username, password, TOTP secret, gateway, cert pin).",
                 "Incomplete", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }

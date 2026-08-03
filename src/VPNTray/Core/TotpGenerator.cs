@@ -38,11 +38,19 @@ public static class TotpGenerator
         return truncated.ToString().PadLeft(digits, '0');
     }
 
+    /// <summary>
+    /// Canonical Base32 form: upper-case, no padding, no grouping spaces. Secrets are often
+    /// pasted as "GEZD GNBV GY3T QOJQ", which openconnect's own decoder rejects outright
+    /// ("Invalid base32 token string"), so normalize before handing a secret to it.
+    /// </summary>
+    public static string NormalizeSecret(string input) => input
+        .ToUpperInvariant()
+        .Replace("=", "")
+        .Replace(" ", "");
+
     public static byte[] Base32Decode(string input)
     {
-        var cleaned = input.ToUpperInvariant()
-            .Replace("=", "")
-            .Replace(" ", "");
+        var cleaned = NormalizeSecret(input);
 
         int bits = 0;
         uint buffer = 0;

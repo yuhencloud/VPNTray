@@ -50,7 +50,7 @@ dotnet build -c Release
 首次启动 app 自动弹出配置窗口；之后随时可以**单击托盘图标**（左键单击），或**右键**菜单点 **Open Settings…** 再打开。整个 app 只有这一个窗口，填你**自己 VPN** 的信息：
 
 - **Username**：VPN 登录用户名（例如 `zhangsan.li`）
-- **Password prefix**：固定密码前缀（VPN 管理员给的，很多公司部署里所有人共用同一个前缀）。实际连接时密码 = 这个前缀 + 当前 6 位 TOTP 动态码，app 自动拼好通过 stdin 喂给 openconnect，你不用手输动态码。
+- **Password**：VPN 登录密码。网关采用**两步认证**：先验密码，通过后再单独要一次 6 位动态码。app 把密码通过 stdin 喂给 openconnect，动态码则由 openconnect 用下面填的 TOTP 密钥自动应答，你不用手输。
 - **TOTP secret (Base32)**：**你自己的** TOTP 密钥，**推荐直接导入 QR 码**（见下面[如何导入 TOTP 密钥](#如何导入-totp-密钥)），也可以手动粘贴 Base32 字符串（大写字母 + 数字 2–7，通常 16–32 位）。**绝对不要用别人的**。
 - **Gateway**：你的 VPN 服务器地址（占位符，必须换成真实值）。
 - **Server cert pin**：服务器证书 SHA-256 指纹（占位符，必须换成真实值）。
@@ -109,7 +109,7 @@ VPN 管理员一般给你一张 `otpauth://` QR 码图片。TOTP 密钥输入框
 确认 `Resources/` 里的原生二进制文件齐全（已随仓库附带；见[原生二进制文件](#原生二进制文件)）。文件缺失或损坏的话重装 / 重新构建一次即可。
 
 ### Q2. 提示认证失败？
-去 Settings 重新核对 **TOTP secret** 和 **Password prefix**。6 位动态码是从密钥推算的，密钥错了码就错。
+去 Settings 重新核对 **Password** 和 **TOTP secret**。两步认证里任一步错了都报同一条认证失败；6 位动态码是从密钥推算的，密钥错了码就错。
 
 ### Q3. 提示服务器证书校验失败？
 多半是运维换了证书。去 Settings 更新 **Server cert pin**。

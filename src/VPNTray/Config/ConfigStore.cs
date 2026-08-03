@@ -1,6 +1,5 @@
-using System.Security.AccessControl;
-using System.Security.Principal;
 using System.Text.Json;
+using VPNTray.Util;
 
 namespace VPNTray.Config;
 
@@ -38,27 +37,7 @@ public class ConfigStore
         var json = JsonSerializer.Serialize(config, Options);
         var tmp = FilePath + ".tmp";
         File.WriteAllText(tmp, json);
-        RestrictToCurrentUser(tmp);
+        FileAcl.RestrictToCurrentUser(tmp);
         File.Move(tmp, FilePath, overwrite: true);
-    }
-
-    /// <summary>Windows equivalent of chmod 0600 — owner full control, no inheritance.</summary>
-    private static void RestrictToCurrentUser(string path)
-    {
-        try
-        {
-            var fileInfo = new FileInfo(path);
-            var security = new FileSecurity();
-            var user = WindowsIdentity.GetCurrent().User!;
-            security.SetOwner(user);
-            security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
-            security.AddAccessRule(new FileSystemAccessRule(
-                user, FileSystemRights.FullControl, AccessControlType.Allow));
-            fileInfo.SetAccessControl(security);
-        }
-        catch (Exception)
-        {
-            // ACL hardening is best-effort; never block a save on it.
-        }
     }
 }

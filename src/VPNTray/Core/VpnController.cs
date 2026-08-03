@@ -70,13 +70,22 @@ public sealed class VpnController : INotifyPropertyChanged
                 return;
             }
 
+            // Fail fast on a malformed secret rather than letting openconnect reject it
+            // mid-handshake, where the reason is much harder to read back.
+            try { TotpGenerator.Base32Decode(config.TotpSecret); }
+            catch (TotpException ex)
+            {
+                State = VpnState.Failed("Invalid TOTP secret: " + ex.Message);
+                return;
+            }
+
             State = VpnState.Connecting;
             try
             {
-                string code = TotpGenerator.Code(config.TotpSecret);
-                string password = config.PasswordPrefix + code;
-                _openConnect.Start(config, password);
-                var handshake = await _openConnect.WaitForHandshakeAsync(TimeSpan.FromSeconds(5));
+                // Only the password goes over stdin. openconnect answers the second,
+                // separate OTP/challenge prompt itself via --token-mode=totp.
+                _openConnect.Start(config, config.Password);
+                var handshake = await _openConnect.WaitForHandshakeAsync(TimeSpan.FromSeconds(20));
                 if (handshake.Connected)
                 {
                     State = VpnState.Connected(DateTimeOffset.Now);

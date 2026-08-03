@@ -33,6 +33,12 @@ public class TotpGeneratorTests
         Assert.Equal(b, a);
     }
 
+    [Theory]
+    [InlineData("gezd gnbv gy3t qojq=", "GEZDGNBVGY3TQOJQ")]
+    [InlineData("GEZDGNBVGY3TQOJQ", "GEZDGNBVGY3TQOJQ")]
+    public void NormalizeSecret_UpperCasesAndStripsGroupingAndPadding(string input, string expected)
+        => Assert.Equal(expected, TotpGenerator.NormalizeSecret(input));
+
     [Fact]
     public void Base32Decode_ThrowsOnInvalidChar()
     {

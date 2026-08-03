@@ -25,7 +25,7 @@ public class VpnControllerTests
 {
     private static VpnConfig Good() => new()
     {
-        Username = "u", PasswordPrefix = "PFX", TotpSecret = "GEZDGNBVGY3TQOJQ",
+        Username = "u", Password = "pw", TotpSecret = "GEZDGNBVGY3TQOJQ",
         Gateway = "g", ServerCertPin = "pin-sha256:AAAA",
     };
 
@@ -38,7 +38,23 @@ public class VpnControllerTests
         await c.ConnectAsync();
         Assert.Equal(VpnStatus.Connected, c.State.Status);
         Assert.True(c.ShouldAutoReconnect);
-        Assert.StartsWith("PFX", oc.LastPassword); // prefix + TOTP
+        // Stage 1 only: no TOTP is appended — openconnect answers the OTP prompt itself.
+        Assert.Equal("pw", oc.LastPassword);
+    }
+
+    [Fact]
+    public async Task Connect_WhenTotpSecretIsMalformed_FailsWithoutSpawning()
+    {
+        var oc = new FakeOpenConnect();
+        var cfg = Good();
+        cfg.TotpSecret = "not-base32!";
+        var c = new VpnController(oc, new FakeNetworkMonitor(), () => cfg);
+
+        await c.ConnectAsync();
+
+        Assert.Equal(VpnStatus.Failed, c.State.Status);
+        Assert.Contains("TOTP secret", c.State.Reason);
+        Assert.Equal(0, oc.StartCount);
     }
 
     [Fact]

@@ -6,7 +6,7 @@
        also runs as administrator). -->
   <Package Name="VPNTray"
            Manufacturer="VPNTray"
-           Version="1.0.0"
+           Version="1.1.0"
            UpgradeCode="70d706ed-e94d-44b1-a7d1-d3dcc6ce78e7"
            Scope="perMachine"
            Compressed="yes">

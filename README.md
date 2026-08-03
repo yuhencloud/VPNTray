@@ -2,7 +2,7 @@
 
 A Windows 10/11 system-tray app that wraps [OpenConnect](https://www.infradead.org/openconnect/) for Cisco AnyConnect-compatible VPNs, generates the TOTP one-time code in-app, and lives quietly in the notification area. Built with .NET 8 (WPF). This is the Windows port of the macOS [VPN MenuBar](https://github.com/CoderZCC/VPNMenuBar) app.
 
-> ⚠️ **This is a generic OpenConnect front-end.** The gateway, server certificate pin, password prefix, and TOTP secret are **placeholders / blanks** — there are no real defaults baked in. You provide your own VPN's hostname, certificate pin, password prefix, and TOTP secret during the Onboarding wizard (or later in Settings). They are usually given to you by your VPN administrator.
+> ⚠️ **This is a generic OpenConnect front-end.** The gateway, server certificate pin, password, and TOTP secret are **placeholders / blanks** — there are no real defaults baked in. You provide your own VPN's hostname, certificate pin, password, and TOTP secret during the Onboarding wizard (or later in Settings). They are usually given to you by your VPN administrator.
 
 > 📖 For a detailed step-by-step walkthrough (UAC, onboarding, extracting the TOTP secret, daily use, FAQ), see **[INSTALL.md](INSTALL.md)** (中文 / Chinese).
 
@@ -49,7 +49,7 @@ Run `VPNTray.exe`. Because the app is marked `requireAdministrator`, Windows wil
 ## First launch
 
 1. Double-click `VPNTray.exe`. **Accept the UAC prompt.** The app starts elevated, and a tray icon appears in the notification area.
-2. A single **Credentials window** opens automatically on first run. Fill in all five fields — username, password prefix, TOTP secret (Base32), gateway, and server certificate pin — then click **Save** (the window stays open).
+2. A single **Credentials window** opens automatically on first run. Fill in all five fields — username, password, TOTP secret (Base32), gateway, and server certificate pin — then click **Save** (the window stays open).
 3. Use the **Connect** button at the top of the window to bring up the VPN right there — it shows **Connecting…**, then **Disconnect** once connected. No need to go to the tray. The tray menu's Connect / Disconnect / Reconnect still work too.
 
 Reopen the window any time with a **single left-click** on the tray icon, or **right-click → Open Settings…**. Until setup is complete, the tray menu only shows **Open Settings…** and **Quit**.
@@ -98,7 +98,7 @@ The status dot on the tray icon shows state:
 
 - **Location:** `%APPDATA%\VPNTray\config.json`
 - **Permissions:** the file is ACL-locked to the current user (Windows equivalent of `chmod 0600`).
-- **Contents:** plain JSON — username, password prefix, TOTP Base32 secret, gateway, certificate pin, and the openconnect / vpnc-script paths.
+- **Contents:** plain JSON — username, password, TOTP Base32 secret, gateway, certificate pin, and the openconnect / vpnc-script paths.
 - **Never uploaded** — it stays entirely on your machine.
 
 > ⚠️ **Never commit `config.json` to git or share it.** The TOTP secret is the seed for your one-time codes and is account-specific. Each user should obtain their own secret from the VPN admin and run Onboarding themselves rather than copying someone else's config.
@@ -116,7 +116,7 @@ The status dot on the tray icon shows state:
 The native binaries are bundled, so this normally just works. If a file under `Resources/` is missing or corrupt (see [Native binaries](#native-binaries)), reinstall or rebuild the app.
 
 **Authentication fails.**
-Re-check your TOTP secret and password prefix in Settings. The 6-digit code is derived from the secret, so a wrong secret means a wrong code.
+Re-check your password and TOTP secret in Settings. The gateway authenticates in two stages — password first, then a separate one-time code — and either one being wrong reports the same failure. The 6-digit code is derived from the secret, so a wrong secret means a wrong code.
 
 **Server certificate verification fails.**
 Your admin probably rotated the certificate. Update the **server cert pin** in Settings.

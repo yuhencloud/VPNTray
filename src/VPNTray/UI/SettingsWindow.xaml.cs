@@ -47,6 +47,10 @@ public partial class SettingsWindow : Window
         _controller.PropertyChanged += OnControllerChanged;
         Closed += (_, _) => _controller.PropertyChanged -= OnControllerChanged;
         UpdateConnectUi();
+
+        // Fire-and-forget: it yields at the first await, so the window still paints promptly,
+        // and the header stops saying "checking…" a moment later.
+        _ = RunToolCheckAsync();
     }
 
     private static Brush Frozen(byte r, byte g, byte b)
@@ -204,15 +208,62 @@ public partial class SettingsWindow : Window
             MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
-    private void OnCheckTools(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// Expanding only reveals the detail — it does not re-run. Re-checking is what the
+    /// Re-check button is for, and hanging a process spawn off an expand would make the
+    /// button look decorative while hiding the real trigger in an invisible gesture.
+    /// </summary>
+    private void OnToggleToolsSection(object sender, MouseButtonEventArgs e)
     {
-        // Sanitized() so the report reflects the paths Connect will really use, including
-        // the bundled fallback when the saved absolute path no longer exists.
-        var statuses = _checker.Check((_store.Load() ?? new VpnConfig()).Sanitized());
-        DepsList.ItemsSource = statuses
-            .Select(s => new DependencyRow { Passed = s.Passed, Name = s.Name, Hint = s.FixHint })
-            .ToList();
-        DepsList.Visibility = Visibility.Visible;
+        bool open = ToolsPanel.Visibility != Visibility.Visible;
+        ToolsPanel.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+        ToolsChevron.Text = open ? "▾" : "▸";
+    }
+
+    private async void OnRecheckTools(object sender, RoutedEventArgs e) => await RunToolCheckAsync();
+
+    /// <summary>
+    /// Fills the tools list and the verdict in its header. Run once when the window opens, so
+    /// the collapsed header says something, and then on demand.
+    ///
+    /// Off the UI thread: one of the checks shells out to `openconnect --version`, and a
+    /// process spawn on the dispatcher is a visible hitch in a window opened from a tray click.
+    /// </summary>
+    private async Task RunToolCheckAsync()
+    {
+        RecheckButton.IsEnabled = false;
+        SetToolsSummary("checking…", failed: false);
+        try
+        {
+            // Sanitized() so the report reflects the paths Connect will really use, including
+            // the bundled fallback when the saved absolute path no longer exists.
+            var config = (_store.Load() ?? new VpnConfig()).Sanitized();
+            var statuses = await Task.Run(() => _checker.Check(config));
+
+            DepsList.ItemsSource = statuses
+                .Select(s => new DependencyRow { Passed = s.Passed, Name = s.Name, Hint = s.FixHint })
+                .ToList();
+
+            int failed = statuses.Count(s => !s.Passed);
+            SetToolsSummary(
+                failed == 0 ? $"{statuses.Count} checks passed" : $"{failed} of {statuses.Count} failed",
+                failed > 0);
+        }
+        finally
+        {
+            RecheckButton.IsEnabled = true;
+        }
+    }
+
+    /// <summary>
+    /// Colours a failure red rather than auto-expanding the section: a broken tool means the
+    /// app cannot connect at all, so it has to be visible while collapsed, but the section
+    /// still opens only when the user asks — same as DNS.
+    /// </summary>
+    private void SetToolsSummary(string text, bool failed)
+    {
+        ToolsSummary.Text = text;
+        ToolsSummary.Foreground = (Brush)FindResource(failed ? "ErrRed" : "TextSecondary");
     }
 
     private void OnSave(object sender, RoutedEventArgs e)

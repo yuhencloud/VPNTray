@@ -127,45 +127,65 @@
                                    Text="The VPN does not touch DNS at all; your normal resolver keeps answering everything. Internal names such as *.corp return NXDOMAIN."/>
                     </StackPanel>
 
-                    <!-- Bundled-tools check (openconnect / wintun / vpnc script) -->
+                    <!-- Bundled-tools check (openconnect / wintun / vpnc script). Same
+                         collapsible shape as DNS above; the header carries the verdict, so the
+                         section only has to be opened to find out which check failed. -->
                     <Border Height="1" Background="{StaticResource Divider}" Margin="0,14,0,0"/>
-                    <Button x:Name="CheckButton" Content="Check tools" Click="OnCheckTools"
-                            HorizontalAlignment="Left" Margin="0,12,0,0"/>
-                    <ItemsControl x:Name="DepsList" Margin="0,8,0,0" Visibility="Collapsed">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Grid Margin="0,4">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
-                                    <Border x:Name="badge" Width="16" Height="16" CornerRadius="8"
-                                            Margin="0,1,9,0" VerticalAlignment="Top"
-                                            Background="{StaticResource ErrRed}">
-                                        <TextBlock x:Name="glyph" Text="!" Foreground="White" FontSize="10"
-                                                   FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                    <StackPanel Grid.Column="1">
-                                        <TextBlock Text="{Binding Name}" Foreground="{StaticResource TextPrimary}" FontSize="12.5"/>
-                                        <TextBlock x:Name="hint" Text="{Binding Hint}" Style="{StaticResource Body}"
-                                                   FontSize="11" Margin="0,1,0,0" TextWrapping="Wrap"/>
-                                    </StackPanel>
-                                </Grid>
-                                <DataTemplate.Triggers>
-                                    <DataTrigger Binding="{Binding Passed}" Value="True">
-                                        <Setter TargetName="badge" Property="Background" Value="{StaticResource OkGreen}"/>
-                                        <Setter TargetName="glyph" Property="Text" Value="&#x2713;"/>
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding Hint}" Value="{x:Null}">
-                                        <Setter TargetName="hint" Property="Visibility" Value="Collapsed"/>
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding Hint}" Value="">
-                                        <Setter TargetName="hint" Property="Visibility" Value="Collapsed"/>
-                                    </DataTrigger>
-                                </DataTemplate.Triggers>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                    <Border Background="Transparent" Cursor="Hand" Padding="0,12,0,2"
+                            MouseLeftButtonUp="OnToggleToolsSection">
+                        <DockPanel>
+                            <TextBlock x:Name="ToolsChevron" DockPanel.Dock="Left" Text="&#x25B8;"
+                                       FontSize="10" Foreground="{StaticResource TextSecondary}"
+                                       Margin="0,0,7,0" VerticalAlignment="Center"/>
+                            <TextBlock DockPanel.Dock="Left" Text="Tools" Style="{StaticResource H1}"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock x:Name="ToolsSummary" Style="{StaticResource Body}" FontSize="11"
+                                       TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                       HorizontalAlignment="Right" VerticalAlignment="Center"
+                                       Margin="10,0,0,0"/>
+                        </DockPanel>
+                    </Border>
+
+                    <StackPanel x:Name="ToolsPanel" Visibility="Collapsed">
+                        <ItemsControl x:Name="DepsList" Margin="0,8,0,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border x:Name="badge" Width="16" Height="16" CornerRadius="8"
+                                                Margin="0,1,9,0" VerticalAlignment="Top"
+                                                Background="{StaticResource ErrRed}">
+                                            <TextBlock x:Name="glyph" Text="!" Foreground="White" FontSize="10"
+                                                       FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Text="{Binding Name}" Foreground="{StaticResource TextPrimary}" FontSize="12.5"/>
+                                            <TextBlock x:Name="hint" Text="{Binding Hint}" Style="{StaticResource Body}"
+                                                       FontSize="11" Margin="0,1,0,0" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <DataTemplate.Triggers>
+                                        <DataTrigger Binding="{Binding Passed}" Value="True">
+                                            <Setter TargetName="badge" Property="Background" Value="{StaticResource OkGreen}"/>
+                                            <Setter TargetName="glyph" Property="Text" Value="&#x2713;"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Hint}" Value="{x:Null}">
+                                            <Setter TargetName="hint" Property="Visibility" Value="Collapsed"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Hint}" Value="">
+                                            <Setter TargetName="hint" Property="Visibility" Value="Collapsed"/>
+                                        </DataTrigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <Button x:Name="RecheckButton" Content="Re-check" Click="OnRecheckTools"
+                                HorizontalAlignment="Left" FontSize="11" Padding="16,5"
+                                Margin="0,10,0,0"/>
+                    </StackPanel>
                 </StackPanel>
             </ScrollViewer>
         </DockPanel>

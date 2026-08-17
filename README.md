@@ -153,7 +153,7 @@ The status dot on the tray icon shows state:
 
 ## Automated behaviors
 
-- **Launch at login** — registers a **Scheduled Task** that runs with highest privileges, so the app starts silently and already elevated at logon (no UAC prompt at startup). Toggle it under **Settings → Startup**. That task launches the app with `--background`, which is the one route in that stays tray-only; every other route — the installer's *Launch VPNTray*, the Start menu, the exe itself — opens the window, because answering a deliberate launch with nothing but a tray icon reads as a failure.
+- **Launch at login** — registers a **Scheduled Task** that runs with highest privileges, so the app starts silently and already elevated at logon (no UAC prompt at startup). Toggle it under **Settings → Startup**. That task launches the app with `--background`, which is the one route in that stays tray-only; every other route — the installer's *Launch VPNTray*, the Start menu, the exe itself — opens the window, because answering a deliberate launch with nothing but a tray icon reads as a failure. A nested **Connect automatically** switch (default off) makes that logon start also dial the VPN; manual launches never auto-connect.
 - **Auto-disconnect / auto-reconnect** — if the network drops while connected, the VPN is dropped cleanly; when the network returns, it reconnects automatically **only if you connected manually**. Failed connects do not loop-retry.
 - **Disconnect on quit** — every exit path disconnects the VPN first, so no orphaned `openconnect.exe` is left running.
 

@@ -110,6 +110,14 @@ public sealed class AppCoordinator
         // Unconfigured always opens — there is nothing else the user could do next.
         if (!configured || !background) ShowSettings();
         UpdateTray();
+
+        // Only the logon start, and only by opt-in: dialling a corporate VPN is not something
+        // to do just because the app came up, and on a manual launch the user is right there.
+        if (background && configured && _startup.IsConnectAtLoginEnabled())
+        {
+            AppLogger.Shared.Info("startup: connect-at-login is on, connecting");
+            _ = _controller.ConnectAsync();
+        }
     }
 
     private void BuildMenu()

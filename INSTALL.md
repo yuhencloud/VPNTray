@@ -98,7 +98,7 @@ VPN 管理员一般给你一张 `otpauth://` QR 码图片。TOTP 密钥输入框
 
 ## 自动化行为
 
-- **开机自启**：通过注册一个**以最高权限运行的计划任务（Scheduled Task）**实现，登录时静默、已提权地启动 app（**不弹 UAC**）。不想要的话 Settings → Startup 里关掉 `Launch at login`（改动立即生效，不用点 Save）。该计划任务带 `--background` 参数，是**唯一**只出托盘图标不开窗的启动方式；安装器的 `Launch VPNTray`、开始菜单、直接双击 exe 都会开窗 —— 用户主动启动却只看到一个托盘图标，跟没启动起来没区别。
+- **开机自启**：通过注册一个**以最高权限运行的计划任务（Scheduled Task）**实现，登录时静默、已提权地启动 app（**不弹 UAC**）。不想要的话 Settings → Startup 里关掉 `Launch at login`（改动立即生效，不用点 Save）。该计划任务带 `--background` 参数，是**唯一**只出托盘图标不开窗的启动方式；安装器的 `Launch VPNTray`、开始菜单、直接双击 exe 都会开窗 —— 用户主动启动却只看到一个托盘图标，跟没启动起来没区别。其下还有一个 **Connect automatically** 子开关（默认关）：勾上后，开机自启起来时直接拨通 VPN；手动打开 app 永远不会自动连。
 - **断网自动断开**：连接中如果网络断了（切网、断网），会主动断开 VPN 避免卡死。
 - **联网自动重连**：如果之前是你**主动**连的，网络恢复后会自动重连；之前主动 Disconnect 过、或上次是连接失败，则**不会**自动重连（避免对着错误配置死循环重试）。
 - **内网 DNS + split-DNS 补偿**：默认让 VPN 接管 DNS，否则 `*.corp…` 之类内网域名一个都解析不出来。但 `vpnc-script-win.js` 整段忽略服务端下发的 `CISCO_SPLIT_DNS`，把内网 DNS 硬绑到隧道网卡上（metric 比 Wi-Fi 低），结果连公网域名也去问内网 DNS——内网 DNS 会把它们解析成云内网地址（100.64.0.0/10），数据包却按默认路由从物理网卡发出去，直接黑洞。所以 VPNTray 支持给受影响的公网后缀加 NRPT 规则强制走公网 DNS（AnyConnect 原生就是这么做的）。列表在 Settings → DNS → **Advanced — public-DNS exceptions**，**默认为空** —— 哪些域名会被某个网关的内网解析器解析错，是那个部署自己的特性，而 NRPT 规则是机器级的，预置一个猜测等于让每个装机的人把解析请求交给第三方去解决一个他可能没有的问题。<br><br>要加之前先确认故障真的存在，对比两个解析器的答案：`Resolve-DnsName 域名 -Server <隧道网卡上的内网解析器>` 和 `Resolve-DnsName 域名 -Server 8.8.8.8`。内网答案落在隧道不路由的网段（比如 `100.64.0.0/10`）才是需要加例外的信号；两边答案一致就不用加。<br><br>规则打了 `vpntray_split_dns` 标记，断开 / 退出 / openconnect 意外死掉时都会清理，可用 `Get-DnsClientNrptRule` 查看。

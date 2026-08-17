@@ -147,7 +147,17 @@
                     <StackPanel x:Name="StartupPanel" Visibility="Collapsed">
                         <CheckBox x:Name="LaunchAtLoginBox" Content="Launch at login" Margin="0,10,0,0"/>
                         <TextBlock Style="{StaticResource Body}" FontSize="11" TextWrapping="Wrap" Margin="24,4,0,0"
-                                   Text="Registers a scheduled task that starts VPNTray elevated at sign-in, so it comes up without a UAC prompt. Turning this off deletes the task. Applied immediately — this one is not part of Save."/>
+                                   Text="Registers a scheduled task that starts VPNTray elevated at sign-in, so it comes up without a UAC prompt. Turning this off deletes the task."/>
+
+                        <!-- Nested and greyed with its parent: without the logon start there is
+                             no launch this could apply to. -->
+                        <CheckBox x:Name="ConnectAtLoginBox" Content="Connect automatically" Margin="24,10,0,0"
+                                  IsEnabled="{Binding IsChecked, ElementName=LaunchAtLoginBox}"/>
+                        <TextBlock Style="{StaticResource Body}" FontSize="11" TextWrapping="Wrap" Margin="48,4,0,0"
+                                   Text="Dial the VPN as soon as the logon start comes up. Only that start — opening the app yourself never auto-connects."/>
+
+                        <TextBlock Style="{StaticResource Body}" FontSize="11" TextWrapping="Wrap" Margin="24,10,0,0"
+                                   Text="Applied immediately — these are not part of Save."/>
                     </StackPanel>
 
                     <!-- Bundled-tools check (openconnect / wintun / vpnc script). Same

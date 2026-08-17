@@ -6,8 +6,13 @@ namespace VPNTray.Util;
 public sealed class StartupManager
 {
     private const string TaskName = "VPNTray";
-    private const string RegistryKey = @"Software\VPNTray";
-    private const string RegistryValue = "LaunchAtLogin";
+    private const string LaunchValue = "LaunchAtLogin";
+    private const string ConnectValue = "ConnectAtLogin";
+
+    private readonly string _registryKey;
+
+    /// <summary>Key override exists for tests, which must not touch the real Software\VPNTray.</summary>
+    public StartupManager(string registryKey = @"Software\VPNTray") => _registryKey = registryKey;
 
     /// <summary>
     /// Passed only by the logon task, so the app can tell "Windows started me" from "somebody
@@ -27,10 +32,27 @@ public sealed class StartupManager
 
     public bool IsEnabled()
     {
-        using var key = Registry.CurrentUser.OpenSubKey(RegistryKey);
-        var value = key?.GetValue(RegistryValue) as int?;
+        using var key = Registry.CurrentUser.OpenSubKey(_registryKey);
+        var value = key?.GetValue(LaunchValue) as int?;
         // Default-on: absent value means enabled (mirrors mac LoginItemManager).
         return value is null || value != 0;
+    }
+
+    /// <summary>
+    /// Whether the logon start should also dial the VPN. Default-OFF, unlike launch-at-login:
+    /// connecting a corporate VPN at every sign-in is not something to assume on anyone's behalf.
+    /// </summary>
+    public bool IsConnectAtLoginEnabled()
+    {
+        using var key = Registry.CurrentUser.OpenSubKey(_registryKey);
+        return key?.GetValue(ConnectValue) as int? is int v && v != 0;
+    }
+
+    /// <summary>Pure registry write — no scheduled task involved, unlike Enable/Disable.</summary>
+    public void SetConnectAtLogin(bool enabled)
+    {
+        using var key = Registry.CurrentUser.CreateSubKey(_registryKey);
+        key.SetValue(ConnectValue, enabled ? 1 : 0, RegistryValueKind.DWord);
     }
 
     public void Enable()
@@ -54,8 +76,8 @@ public sealed class StartupManager
 
     private void SetPreference(bool enabled)
     {
-        using var key = Registry.CurrentUser.CreateSubKey(RegistryKey);
-        key.SetValue(RegistryValue, enabled ? 1 : 0, RegistryValueKind.DWord);
+        using var key = Registry.CurrentUser.CreateSubKey(_registryKey);
+        key.SetValue(LaunchValue, enabled ? 1 : 0, RegistryValueKind.DWord);
     }
 
     private static void RunSchtasks(IReadOnlyList<string> args)

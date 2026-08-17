@@ -254,18 +254,33 @@ public partial class SettingsWindow : Window
     private void SyncLaunchAtLogin()
     {
         bool on = _startup.IsEnabled();
-        // Detached while writing, or the write would re-enter ApplyLaunchAtLoginAsync.
+        bool connect = _startup.IsConnectAtLoginEnabled();
+        // Detached while writing, or the write would re-enter the handlers.
         LaunchAtLoginBox.Checked -= OnLaunchAtLoginChanged;
         LaunchAtLoginBox.Unchecked -= OnLaunchAtLoginChanged;
+        ConnectAtLoginBox.Checked -= OnConnectAtLoginChanged;
+        ConnectAtLoginBox.Unchecked -= OnConnectAtLoginChanged;
         LaunchAtLoginBox.IsChecked = on;
+        ConnectAtLoginBox.IsChecked = connect;
         LaunchAtLoginBox.Checked += OnLaunchAtLoginChanged;
         LaunchAtLoginBox.Unchecked += OnLaunchAtLoginChanged;
+        ConnectAtLoginBox.Checked += OnConnectAtLoginChanged;
+        ConnectAtLoginBox.Unchecked += OnConnectAtLoginChanged;
 
-        StartupSummary.Text = on ? "launches at login" : "manual start";
+        StartupSummary.Text = !on ? "manual start"
+            : connect ? "launches at login, auto-connects"
+            : "launches at login";
     }
 
     private async void OnLaunchAtLoginChanged(object sender, RoutedEventArgs e)
         => await ApplyLaunchAtLoginAsync(LaunchAtLoginBox.IsChecked == true);
+
+    /// <summary>A bare registry write — instant, so no disable/re-enable dance is needed.</summary>
+    private void OnConnectAtLoginChanged(object sender, RoutedEventArgs e)
+    {
+        _startup.SetConnectAtLogin(ConnectAtLoginBox.IsChecked == true);
+        SyncLaunchAtLogin();
+    }
 
     private void OnToggleToolsSection(object sender, MouseButtonEventArgs e)
     {

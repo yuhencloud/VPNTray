@@ -12,4 +12,18 @@
       <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" /> <!-- Windows 10/11 -->
     </application>
   </compatibility>
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <!-- Without this a WPF app is only system-DPI aware: Windows samples the DPI once at
+           launch and, when it later changes — a monitor plugged in or out, the window dragged
+           to a differently-scaled screen — bitmap-stretches the whole window instead of
+           letting it re-render. That stretch is the blur. Per-Monitor V2 hands WPF the DPI
+           change so it re-lays-out and redraws at the new scale.
+
+           Both keys on purpose: the 2016 one wins where it is understood, the 2005 one covers
+           builds that predate it. -->
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2, PerMonitor</dpiAwareness>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+    </windowsSettings>
+  </application>
 </assembly>

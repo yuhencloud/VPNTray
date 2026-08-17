@@ -22,7 +22,9 @@ public class ConfigStore
         try
         {
             var json = File.ReadAllText(FilePath);
-            return JsonSerializer.Deserialize<VpnConfig>(json, Options);
+            var config = JsonSerializer.Deserialize<VpnConfig>(json, Options);
+            config?.Migrate();
+            return config;
         }
         catch (Exception)
         {

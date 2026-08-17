@@ -30,7 +30,35 @@ The native files VPNTray needs at runtime are **committed in `src/VPNTray/Resour
 | `openconnect.exe` + its `lib*.dll` / `zlib1.dll` set | OpenConnect **v8.10** (anyconnect/DTLS/ESP), from the [horar/openconnect](https://github.com/horar/openconnect) prebuilt MinGW64 build, SHA-512 verified. |
 | `wintun.dll` | Wintun **0.14.1** (amd64), official build from [wintun.net](https://www.wintun.net/). |
 | `vpnc-script-win.js` | The VPN-configuration script, version-matched to the openconnect build. |
-| `vpnc-script-win--no-dns.js` | The same script with its **DNS-configuration block disabled** — used when "Skip DNS modification" is enabled (the default) so VPNTray does not touch your system DNS settings. |
+| `vpnc-script-win--no-dns.js` | The same script with its **DNS-configuration block disabled**. Only used when you turn *Use the VPN's internal DNS* **off** — with it off, internal names (`*.corp…`) do not resolve at all, so it is not the default. |
+
+### DNS and the split-DNS rules
+
+`vpnc-script-win.js` ignores the gateway's `CISCO_SPLIT_DNS` list: it pins the internal
+resolvers onto the tunnel adapter, whose metric beats Wi-Fi's, so *every* lookup goes to the
+internal DNS. On a split tunnel that breaks public names — the internal resolver answers them
+with in-cloud addresses (100.64.0.0/10) that the default route then sends out the physical NIC,
+where they black-hole.
+
+VPNTray keeps the internal DNS (so `*.corp…` resolves) and can carve individual public suffixes
+back out with NRPT rules pointing at a public resolver, which is what AnyConnect does natively.
+The list lives under **Settings → DNS → Advanced — public-DNS exceptions** and **ships empty**:
+which names a given gateway's resolver gets wrong is a property of that deployment, and an NRPT
+rule is machine-wide, so a shipped default would redirect somebody's lookups to a third party
+for a problem they may not have.
+
+Add a suffix only after confirming the breakage, by comparing the two answers:
+
+```powershell
+Resolve-DnsName name.example.com -Server <internal resolver>   # from the tunnel adapter
+Resolve-DnsName name.example.com -Server 8.8.8.8
+```
+
+An internal answer in a range the tunnel does not route (e.g. `100.64.0.0/10`) is the signal.
+Matching answers mean no exception is needed.
+
+Rules are tagged `vpntray_split_dns` and removed on disconnect, on app exit, and whenever
+openconnect dies — inspect them with `Get-DnsClientNrptRule`.
 
 See [`src/VPNTray/Resources/README.md`](src/VPNTray/Resources/README.md) for sources, versions, licenses, and how to swap in a newer openconnect. The `.csproj` bundles whatever is in `Resources/` next to the built exe.
 

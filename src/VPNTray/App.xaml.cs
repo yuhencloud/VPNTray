@@ -29,8 +29,12 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        AppLogger.Shared.Info("exit: OnExit entered");
+        // No-op when Quit already ran it; still the only teardown on paths that bypass the
+        // tray menu (session ending, Shutdown called from elsewhere).
         _coordinator?.StopForShutdown();
         _instanceMutex?.Dispose();
         base.OnExit(e);
+        AppLogger.Shared.Info("exit: OnExit done");
     }
 }

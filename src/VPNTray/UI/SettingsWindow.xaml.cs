@@ -9,6 +9,16 @@ using VPNTray.Util;
 
 namespace VPNTray.UI;
 
+/// <summary>What a saved config asks of a connection that is already up.</summary>
+public enum SaveImpact
+{
+    /// <summary>Only the split-DNS exception lists moved; the tunnel can stay.</summary>
+    SplitDnsOnly,
+
+    /// <summary>Something openconnect reads at spawn time changed; the tunnel must be rebuilt.</summary>
+    Reconnect,
+}
+
 public partial class SettingsWindow : Window
 {
     private readonly ConfigStore _store;
@@ -21,7 +31,7 @@ public partial class SettingsWindow : Window
     private static readonly Brush DotRed = Frozen(0xEF, 0x44, 0x44);
     private static readonly Brush DotGray = Frozen(0x9C, 0xA3, 0xAF);
 
-    public event Action? Saved;
+    public event Action<SaveImpact>? Saved;
 
     public SettingsWindow(ConfigStore store, DependencyChecker checker, VpnController controller)
     {
@@ -30,6 +40,7 @@ public partial class SettingsWindow : Window
         _controller = controller;
         InitializeComponent();
         SourceInitialized += (_, _) => WindowEffects.Apply(this);
+        VersionText.Text = AppVersion.Display;
         Load();
         WireChangeTracking();
 
@@ -45,8 +56,15 @@ public partial class SettingsWindow : Window
         return brush;
     }
 
+    /// <summary>
+    /// Posts rather than blocks — see the matching note in AppCoordinator. The controller
+    /// raises this from thread-pool threads, and a blocking Invoke would park them behind a
+    /// UI thread that the exit path is holding.
+    /// </summary>
     private void OnControllerChanged(object? sender, PropertyChangedEventArgs e)
-        => Dispatcher.Invoke(UpdateConnectUi);
+    {
+        try { Dispatcher.BeginInvoke(UpdateConnectUi); } catch { /* shutting down */ }
+    }
 
     private void UpdateConnectUi()
     {
@@ -111,6 +129,39 @@ public partial class SettingsWindow : Window
         TotpBox.Password = c.TotpSecret;
         GatewayBox.Text = c.Gateway;
         PinBox.Text = c.ServerCertPin;
+        // The stored flag is phrased as an omission ("skip DNS modification"); the UI offers
+        // the two destinations instead, which is what the user actually reasons about.
+        InternalDnsRadio.IsChecked = !c.SkipDnsModification;
+        PublicDnsRadio.IsChecked = c.SkipDnsModification;
+        BypassDomainsBox.Text = string.Join(", ", c.SplitDnsPublicNamespaces);
+        BypassServersBox.Text = string.Join(", ", c.SplitDnsPublicServers);
+        UpdateDnsSummary();
+    }
+
+    private void OnToggleDnsSection(object sender, MouseButtonEventArgs e)
+    {
+        bool open = DnsPanel.Visibility != Visibility.Visible;
+        DnsPanel.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+        DnsChevron.Text = open ? "▾" : "▸";
+    }
+
+    /// <summary>
+    /// Keeps the collapsed header honest: the section is shut by default, so without this
+    /// there is nothing to tell the user which resolver names are going to — or that the
+    /// exception list is empty. Both change what resolves.
+    /// </summary>
+    private void UpdateDnsSummary()
+    {
+        if (InternalDnsRadio.IsChecked != true)
+        {
+            DnsSummary.Text = "public DNS";
+            return;
+        }
+
+        int domains = ParseList(BypassDomainsBox.Text).Count;
+        DnsSummary.Text = domains == 0
+            ? "internal DNS"
+            : $"internal DNS, {domains} {(domains == 1 ? "exception" : "exceptions")}";
     }
 
     private void WireChangeTracking()
@@ -121,7 +172,18 @@ public partial class SettingsWindow : Window
         PinBox.TextChanged += (_, _) => Enable();
         PwdBox.PasswordChanged += (_, _) => Enable();
         TotpBox.PasswordChanged += (_, _) => Enable();
+        InternalDnsRadio.Checked += (_, _) => { Enable(); UpdateDnsSummary(); };
+        PublicDnsRadio.Checked += (_, _) => { Enable(); UpdateDnsSummary(); };
+        BypassDomainsBox.TextChanged += (_, _) => { Enable(); UpdateDnsSummary(); };
+        BypassServersBox.TextChanged += (_, _) => Enable();
     }
+
+    /// <summary>Accepts comma, semicolon, or whitespace between entries.</summary>
+    private static List<string> ParseList(string text)
+        => text.Split(new[] { ',', ';', ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(d => d.Trim())
+            .Where(d => d.Length > 0)
+            .ToList();
 
     private void OnImportQrFile(object sender, RoutedEventArgs e)
     {
@@ -155,8 +217,16 @@ public partial class SettingsWindow : Window
 
     private void OnSave(object sender, RoutedEventArgs e)
     {
-        // Edit the five credential fields; preserve advanced fields
-        // (openconnect / vpnc-script paths, Skip DNS flag) from the saved config.
+        var bypassDomains = ParseList(BypassDomainsBox.Text);
+        var bypassServers = ParseList(BypassServersBox.Text);
+
+        // Only when the exceptions are live. In public-DNS mode the fields are greyed out,
+        // and refusing a save over a field the user cannot edit is a dead end; the entries
+        // are still stored, so they get validated on the save that turns internal DNS back on.
+        if (InternalDnsRadio.IsChecked == true && !ExceptionsAreValid(bypassDomains, bypassServers)) return;
+
+        // Edit the credential and DNS fields; preserve the advanced ones
+        // (openconnect / vpnc-script paths) from the saved config.
         var existing = _store.Load() ?? new VpnConfig();
         var c = new VpnConfig
         {
@@ -167,7 +237,9 @@ public partial class SettingsWindow : Window
             ServerCertPin = PinBox.Text,
             OpenconnectPath = existing.OpenconnectPath,
             VpncScriptPath = existing.VpncScriptPath,
-            SkipDnsModification = existing.SkipDnsModification,
+            SkipDnsModification = InternalDnsRadio.IsChecked != true,
+            SplitDnsPublicNamespaces = bypassDomains,
+            SplitDnsPublicServers = bypassServers,
             // SchemaVersion intentionally left at the default: saving rewrites the file in
             // the current schema, so a migrated v1 config must not keep claiming v1.
         }.Sanitized();
@@ -182,9 +254,64 @@ public partial class SettingsWindow : Window
 
         _store.Save(c);
         SaveButton.IsEnabled = false;
+        // Sanitized() may have dropped entries the parser kept, so re-read rather than
+        // leaving the boxes showing something the config no longer contains.
+        BypassDomainsBox.Text = string.Join(", ", c.SplitDnsPublicNamespaces);
+        BypassServersBox.Text = string.Join(", ", c.SplitDnsPublicServers);
+        UpdateDnsSummary();
+        // Compared sanitized-to-sanitized, or path resolution alone would read as a change and
+        // force a needless reconnect.
+        var impact = existing.Sanitized().TunnelSettingsMatch(c)
+            ? SaveImpact.SplitDnsOnly
+            : SaveImpact.Reconnect;
         // Keep the window open so the user can connect from here.
-        Saved?.Invoke();
+        Saved?.Invoke(impact);
         UpdateConnectUi();
+    }
+
+    /// <summary>
+    /// Reports the first problem with the public-DNS exceptions, if any. False means the save
+    /// was refused and the user has been told why.
+    /// </summary>
+    private bool ExceptionsAreValid(List<string> domains, List<string> servers)
+    {
+        var malformed = domains.Where(d => !SplitDnsManager.IsValidNamespace(d)).ToList();
+        if (malformed.Count > 0)
+            return RejectDnsSetting(
+                "These are not valid domain suffixes:\n\n" + string.Join("\n", malformed) +
+                "\n\nUse entries like .example.com or api.example.com.", "Exception domains");
+
+        var badServers = servers.Where(s => !SplitDnsManager.IsValidServer(s)).ToList();
+        if (badServers.Count > 0)
+            return RejectDnsSetting(
+                "These are not valid IP addresses:\n\n" + string.Join("\n", badServers) +
+                "\n\nUse entries like 8.8.8.8 or 2001:4860:4860::8888.", "Exception resolvers");
+
+        // A domain with nowhere to send it installs no rule at all, so it would silently keep
+        // resolving through the internal resolver — exactly the breakage being avoided.
+        if (domains.Count > 0 && servers.Count == 0)
+            return RejectDnsSetting(
+                "The exception domains need at least one resolver to go to.\n\n" +
+                "Fill in \"Resolved through\" (e.g. 8.8.8.8), or clear the domain list.",
+                "Exception resolvers");
+
+        return true;
+    }
+
+    /// <summary>
+    /// Refuses a save over a DNS setting and says why. Opens the section first: it is
+    /// collapsed by default, and a complaint about a field the user cannot see is a dead end.
+    /// Always returns false so callers can `return RejectDnsSetting(…)`.
+    /// </summary>
+    private bool RejectDnsSetting(string message, string title)
+    {
+        if (DnsPanel.Visibility != Visibility.Visible)
+        {
+            DnsPanel.Visibility = Visibility.Visible;
+            DnsChevron.Text = "▾";
+        }
+        MessageBox.Show(this, message, title, MessageBoxButton.OK, MessageBoxImage.Warning);
+        return false;
     }
 
     private void OnCancel(object sender, RoutedEventArgs e) => Close();

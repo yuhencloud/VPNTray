@@ -77,11 +77,49 @@ public class VpnConfigTests
     }
 
     [Fact]
-    public void Defaults_UseBundledPaths_AndSkipDnsOn()
+    public void Defaults_UseBundledPaths_AndLeaveTunnelDnsInPlace()
     {
         var c = new VpnConfig();
         Assert.EndsWith("openconnect.exe", c.OpenconnectPath);
+        // On would mean no internal name resolves at all.
+        Assert.False(c.SkipDnsModification);
+        // Empty, not a guess: which public names an internal resolver breaks is specific to
+        // the gateway, and a shipped suffix installs a machine-wide rule nobody asked for.
+        Assert.Empty(c.SplitDnsPublicNamespaces);
+        Assert.Empty(c.SplitDnsPublicServers);
+    }
+
+    [Fact]
+    public void Migrate_TurnsOffSkipDns_OnConfigsWrittenBeforeV3()
+    {
+        // v2 wrote the key out explicitly, so a changed default never reaches those files.
+        var c = new VpnConfig { SkipDnsModification = true, SchemaVersion = 2 };
+
+        c.Migrate();
+
+        Assert.False(c.SkipDnsModification);
+        Assert.Equal(VpnConfig.CurrentSchemaVersion, c.SchemaVersion);
+    }
+
+    [Fact]
+    public void Migrate_LeavesACurrentConfigAlone()
+    {
+        var c = new VpnConfig { SkipDnsModification = true };  // deliberate, at current schema
+        c.Migrate();
         Assert.True(c.SkipDnsModification);
+    }
+
+    [Fact]
+    public void Sanitized_CleansBypassDomains_AndDropsBlankEntries()
+    {
+        var c = new VpnConfig
+        {
+            SplitDnsPublicNamespaces = new List<string> { "  .a.com ", "", "\u200B", ".b\u200B.com" },
+        };
+
+        var s = c.Sanitized();
+
+        Assert.Equal(new[] { ".a.com", ".b.com" }, s.SplitDnsPublicNamespaces);
     }
 
     [Fact]
@@ -121,6 +159,45 @@ public class VpnConfigTests
 
         Assert.Contains("\"Password\"", json);
         Assert.DoesNotContain("PasswordPrefix", json);
-        Assert.Contains("\"SchemaVersion\":2", json);
+        Assert.Contains("\"SchemaVersion\":3", json);
+    }
+
+    [Fact]
+    public void TunnelSettingsMatch_WhenOnlyTheExceptionListsDiffer()
+    {
+        var before = FullyConfigured();
+        var after = FullyConfigured();
+        after.SplitDnsPublicNamespaces = new List<string> { ".example.com", ".other.net" };
+        after.SplitDnsPublicServers = new List<string> { "9.9.9.9" };
+
+        Assert.True(before.TunnelSettingsMatch(after));
+    }
+
+    [Fact]
+    public void TunnelSettingsMatch_IsFalseWhenTheDnsModeDiffers()
+    {
+        var before = FullyConfigured();
+        var after = FullyConfigured();
+        after.SkipDnsModification = !before.SkipDnsModification;
+
+        Assert.False(before.TunnelSettingsMatch(after));
+    }
+
+    [Theory]
+    [InlineData("Username")]
+    [InlineData("Password")]
+    [InlineData("TotpSecret")]
+    [InlineData("Gateway")]
+    [InlineData("ServerCertPin")]
+    [InlineData("OpenconnectPath")]
+    [InlineData("VpncScriptPath")]
+    public void TunnelSettingsMatch_IsFalseWhenAnySpawnTimeFieldDiffers(string property)
+    {
+        var before = FullyConfigured();
+        var after = FullyConfigured();
+        var prop = typeof(VpnConfig).GetProperty(property)!;
+        prop.SetValue(after, (string)prop.GetValue(before)! + "-changed");
+
+        Assert.False(before.TunnelSettingsMatch(after));
     }
 }

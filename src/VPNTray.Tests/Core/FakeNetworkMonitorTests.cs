@@ -6,6 +6,8 @@ public sealed class FakeNetworkMonitor : INetworkMonitor
 {
     public event Action<bool>? ReachabilityChanged;
     public bool Started { get; private set; }
+    /// <summary>Lets a test assert the unsubscribe itself, not just an absence of side effects.</summary>
+    public bool HasSubscribers => ReachabilityChanged is not null;
     public void Start() => Started = true;
     public void Stop() => Started = false;
     public void Raise(bool reachable) => ReachabilityChanged?.Invoke(reachable);

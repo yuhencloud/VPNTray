@@ -21,7 +21,7 @@ VPNTray 运行时需要的原生文件**已提交在 `src/VPNTray/Resources/`**�
 | `openconnect.exe` + 它的 `lib*.dll` / `zlib1.dll` 一套依赖 | OpenConnect **v8.10**（anyconnect/DTLS/ESP），来自 [horar/openconnect](https://github.com/horar/openconnect) 预编译 MinGW64 构建，已校验 SHA-512。 |
 | `wintun.dll` | Wintun **0.14.1**（amd64），[wintun.net](https://www.wintun.net/) 官方构建。 |
 | `vpnc-script-win.js` | VPN 配置脚本，与 openconnect 构建版本匹配。 |
-| `vpnc-script-win--no-dns.js` | 同一脚本，但**禁用了 DNS 配置那一段**。开启"跳过 DNS 修改"（默认）时用这个，让 VPNTray 不去动你系统的 DNS 设置。 |
+| `vpnc-script-win--no-dns.js` | 同一脚本，但**禁用了 DNS 配置那一段**。只有关掉「Use the VPN's internal DNS」时才用它——关掉之后内网域名（`*.corp…`）完全解析不了，所以不是默认值。 |
 
 > 💡 所有 `lib*.dll` / `zlib1.dll` 是 `openconnect.exe` 的运行时依赖，必须和它放在同一个 `Resources/` 文件夹里，否则 openconnect 起不来。详见 [`src/VPNTray/Resources/README.md`](src/VPNTray/Resources/README.md)（含来源、版本、许可证，以及怎么换更新的 openconnect）。
 
@@ -81,7 +81,7 @@ VPN 管理员一般给你一张 `otpauth://` QR 码图片。TOTP 密钥输入框
 | **Connect** | 生成 TOTP 并建立 VPN 隧道 |
 | **Disconnect** | 断开隧道（同时清除自动重连意图）|
 | **Reconnect** | 先断开再连 |
-| **Open Settings…** | 修改所有字段，包括 Advanced（路径、跳过 DNS 修改、开机自启）|
+| **Open Settings…** | 修改所有字段，包括 DNS（内网 DNS 开关、公网 DNS 绕行域名）和 Advanced（路径、开机自启）|
 | **Quit** | 退出 app（连着的话先断开）|
 
 托盘图标上的状态小圆点：
@@ -101,7 +101,7 @@ VPN 管理员一般给你一张 `otpauth://` QR 码图片。TOTP 密钥输入框
 - **开机自启**：通过注册一个**以最高权限运行的计划任务（Scheduled Task）**实现，登录时静默、已提权地启动 app（**不弹 UAC**）。不想要的话 Settings → Advanced 里关掉 `Launch at login`。
 - **断网自动断开**：连接中如果网络断了（切网、断网），会主动断开 VPN 避免卡死。
 - **联网自动重连**：如果之前是你**主动**连的，网络恢复后会自动重连；之前主动 Disconnect 过、或上次是连接失败，则**不会**自动重连（避免对着错误配置死循环重试）。
-- **跳过 DNS 修改**：默认开启，VPN 不会改你系统的 DNS 设置（用的是 `vpnc-script-win--no-dns.js`）。想让 VPN 接管 DNS 的话 Settings → Advanced 里关掉 `Skip DNS modification`。
+- **内网 DNS + split-DNS 补偿**：默认让 VPN 接管 DNS，否则 `*.corp…` 之类内网域名一个都解析不出来。但 `vpnc-script-win.js` 整段忽略服务端下发的 `CISCO_SPLIT_DNS`，把内网 DNS 硬绑到隧道网卡上（metric 比 Wi-Fi 低），结果连公网域名也去问内网 DNS——内网 DNS 会把它们解析成云内网地址（100.64.0.0/10），数据包却按默认路由从物理网卡发出去，直接黑洞。所以 VPNTray 支持给受影响的公网后缀加 NRPT 规则强制走公网 DNS（AnyConnect 原生就是这么做的）。列表在 Settings → DNS → **Advanced — public-DNS exceptions**，**默认为空** —— 哪些域名会被某个网关的内网解析器解析错，是那个部署自己的特性，而 NRPT 规则是机器级的，预置一个猜测等于让每个装机的人把解析请求交给第三方去解决一个他可能没有的问题。<br><br>要加之前先确认故障真的存在，对比两个解析器的答案：`Resolve-DnsName 域名 -Server <隧道网卡上的内网解析器>` 和 `Resolve-DnsName 域名 -Server 8.8.8.8`。内网答案落在隧道不路由的网段（比如 `100.64.0.0/10`）才是需要加例外的信号；两边答案一致就不用加。<br><br>规则打了 `vpntray_split_dns` 标记，断开 / 退出 / openconnect 意外死掉时都会清理，可用 `Get-DnsClientNrptRule` 查看。
 
 ## 常见问题
 

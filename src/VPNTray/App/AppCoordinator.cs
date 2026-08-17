@@ -16,17 +16,29 @@ public sealed class AppCoordinator
     private readonly DependencyChecker _checker = new(new SystemProcessRunner());
     private TaskbarIcon _tray = null!;
     private SettingsWindow? _settings;
+    private int _stopped;
+    private static Timer? _exitBackstop;
 
     public AppCoordinator()
     {
         var openConnect = new OpenConnectProcess();
         var network = new NetworkMonitor();
-        _controller = new VpnController(openConnect, network, () => _store.Load());
+        var splitDns = new SplitDnsManager(new SystemProcessRunner());
+        _controller = new VpnController(openConnect, network, () => _store.Load(), splitDns);
         _controller.PropertyChanged += OnControllerPropertyChanged;
     }
 
+    /// <summary>
+    /// Posts rather than blocks: PropertyChanged arrives on thread-pool threads (watchdog,
+    /// reconnect continuations), and the exit path deliberately blocks the UI thread while
+    /// powershell removes the split-DNS rules. A blocking Invoke from that window parks the
+    /// raising thread behind a UI thread that is itself waiting, and throws outright once the
+    /// dispatcher has begun shutting down.
+    /// </summary>
     private void OnControllerPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
-        => Application.Current.Dispatcher.Invoke(UpdateTray);
+    {
+        try { Application.Current?.Dispatcher.BeginInvoke(UpdateTray); } catch { /* shutting down */ }
+    }
 
     public void Start()
     {
@@ -105,13 +117,24 @@ public sealed class AppCoordinator
         var win = new SettingsWindow(_store, _checker, _controller);
         _settings = win;
         win.Closed += (_, _) => _settings = null;
-        win.Saved += async () =>
+        win.Saved += async impact =>
         {
             _controller.MarkConfigured();
             if (_controller.State.Status == VpnStatus.Connected)
             {
-                await _controller.DisconnectAsync();
-                await _controller.ConnectAsync();
+                // Editing the exception list used to drop the tunnel and re-authenticate for
+                // rules openconnect has no part in. Worse than slow: the re-login needs a TOTP
+                // from the same 30-second window the last one used, which the gateway rejects.
+                if (impact == SaveImpact.SplitDnsOnly)
+                {
+                    await _controller.RefreshSplitDnsAsync();
+                }
+                else
+                {
+                    AppLogger.Shared.Info("settings saved: spawn-time settings changed, reconnecting");
+                    await _controller.DisconnectAsync();
+                    await _controller.ConnectAsync();
+                }
             }
             UpdateTray();
         };
@@ -119,16 +142,51 @@ public sealed class AppCoordinator
         win.Activate();
     }
 
+    /// <summary>
+    /// Idempotent: Quit, <see cref="Application.SessionEnding"/> and App.OnExit all reach
+    /// here, and the controller stop behind it is expensive (it shells out to powershell).
+    /// </summary>
     public void StopForShutdown()
     {
+        if (Interlocked.Exchange(ref _stopped, 1) != 0) return;
+
         try { _controller.PropertyChanged -= OnControllerPropertyChanged; } catch { /* ignore */ }
         _controller.StopForShutdown();
+        AppLogger.Shared.Info("shutdown: disposing tray icon");
         try { _tray?.Dispose(); } catch { /* ignore */ }
+        AppLogger.Shared.Info("shutdown: coordinator stopped");
     }
 
     private void Quit()
     {
+        AppLogger.Shared.Info("quit: requested from tray menu");
+        ArmForcedExit(TimeSpan.FromSeconds(15));
         StopForShutdown();
+        AppLogger.Shared.Info("quit: calling Application.Shutdown");
         Application.Current.Shutdown();
+        AppLogger.Shared.Info("quit: Application.Shutdown returned");
+    }
+
+    /// <summary>
+    /// Last resort for the exit path. By the time it can fire, cleanup has long finished, so
+    /// the only thing left to cut short is a WPF/tray teardown that never completes — and a
+    /// tray app that survives its own Quit, holding the single-instance mutex and forcing the
+    /// user into Task Manager, is worse than one that exits abruptly. The timer thread is a
+    /// background one, so arming this cannot itself keep the process alive.
+    ///
+    /// The grace period is well clear of the controller's own bounded waits; if this ever
+    /// fires, the preceding "shutdown: …" lines say which step never returned.
+    /// </summary>
+    private static void ArmForcedExit(TimeSpan grace)
+    {
+        // Held in a static so the timer is not collected before it fires.
+        _exitBackstop = new Timer(
+            _ =>
+            {
+                AppLogger.Shared.Error(
+                    $"quit: still running {grace.TotalSeconds:0}s after Quit — forcing exit");
+                Environment.Exit(0);
+            },
+            null, grace, Timeout.InfiniteTimeSpan);
     }
 }

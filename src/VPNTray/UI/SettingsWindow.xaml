@@ -19,6 +19,10 @@
                         </Viewbox>
                         <TextBlock Text="VPNTray" Style="{StaticResource H1}"
                                    Margin="8,0,0,0" VerticalAlignment="Center"/>
+                        <!-- Baseline-aligned rather than centred, so it reads as a suffix to
+                             the name instead of a second heading. Text set in code-behind. -->
+                        <TextBlock x:Name="VersionText" Style="{StaticResource Body}"
+                                   FontSize="10.5" Margin="7,0,0,2" VerticalAlignment="Bottom"/>
                     </StackPanel>
                 </DockPanel>
             </Border>
@@ -71,6 +75,57 @@
 
                     <TextBlock Text="Server cert pin" Style="{StaticResource FieldLabel}"/>
                     <TextBox x:Name="PinBox"/>
+
+                    <!-- DNS — collapsed by default: the shipped defaults suit most people,
+                         so the header carries a summary and only the curious need to open it. -->
+                    <Border Height="1" Background="{StaticResource Divider}" Margin="0,14,0,0"/>
+                    <Border Background="Transparent" Cursor="Hand" Padding="0,12,0,2"
+                            MouseLeftButtonUp="OnToggleDnsSection">
+                        <DockPanel>
+                            <TextBlock x:Name="DnsChevron" DockPanel.Dock="Left" Text="&#x25B8;"
+                                       FontSize="10" Foreground="{StaticResource TextSecondary}"
+                                       Margin="0,0,7,0" VerticalAlignment="Center"/>
+                            <TextBlock DockPanel.Dock="Left" Text="DNS" Style="{StaticResource H1}"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock x:Name="DnsSummary" Style="{StaticResource Body}" FontSize="11"
+                                       TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                       HorizontalAlignment="Right" VerticalAlignment="Center"
+                                       Margin="10,0,0,0"/>
+                        </DockPanel>
+                    </Border>
+
+                    <!-- Two named modes rather than one checkbox: the off state of "use the
+                         VPN's DNS" reads as "leave DNS alone", which is not what it does. -->
+                    <StackPanel x:Name="DnsPanel" Visibility="Collapsed">
+                        <RadioButton x:Name="InternalDnsRadio" GroupName="DnsMode" Margin="0,10,0,0"
+                                     Content="Send every name to the VPN's internal DNS"/>
+                        <TextBlock Style="{StaticResource Body}" FontSize="11" TextWrapping="Wrap" Margin="24,3,0,0"
+                                   Text="Internal names such as *.corp resolve. Recommended — this is what the gateway expects."/>
+
+                        <!-- Exceptions to mode 1, so they live under it and grey out with it. -->
+                        <StackPanel Margin="24,0,0,0"
+                                    IsEnabled="{Binding IsChecked, ElementName=InternalDnsRadio}">
+                            <TextBlock Text="Advanced — public-DNS exceptions" Style="{StaticResource FieldLabel}"
+                                       Margin="0,10,0,3"/>
+                            <TextBlock Style="{StaticResource Body}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,2"
+                                       Text="Empty unless you need it. Add a name here only after confirming the internal resolver answers it with an address that does not route — compare the two answers with Resolve-DnsName."/>
+
+                            <TextBlock Text="Domains" Style="{StaticResource FieldLabel}"/>
+                            <TextBox x:Name="BypassDomainsBox"/>
+                            <TextBlock Style="{StaticResource Body}" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"
+                                       Text="Comma separated, e.g. .example.com, api.example.net — a leading dot also covers every subdomain."/>
+
+                            <TextBlock Text="Resolved through" Style="{StaticResource FieldLabel}"/>
+                            <TextBox x:Name="BypassServersBox"/>
+                            <TextBlock Style="{StaticResource Body}" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"
+                                       Text="Comma separated IP addresses of a public resolver, tried in order."/>
+                        </StackPanel>
+
+                        <RadioButton x:Name="PublicDnsRadio" GroupName="DnsMode" Margin="0,14,0,0"
+                                     Content="Send every name to public DNS"/>
+                        <TextBlock Style="{StaticResource Body}" FontSize="11" TextWrapping="Wrap" Margin="24,3,0,0"
+                                   Text="The VPN does not touch DNS at all; your normal resolver keeps answering everything. Internal names such as *.corp return NXDOMAIN."/>
+                    </StackPanel>
 
                     <!-- Bundled-tools check (openconnect / wintun / vpnc script) -->
                     <Border Height="1" Background="{StaticResource Divider}" Margin="0,14,0,0"/>

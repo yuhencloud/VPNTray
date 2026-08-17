@@ -74,6 +74,24 @@ The built app lands in `src/VPNTray/bin/Release/net8.0-windows/`, with the bundl
 
 Run `VPNTray.exe`. Because the app is marked `requireAdministrator`, Windows will prompt for elevation (UAC) on every launch — accept it.
 
+### Building the installer
+
+```powershell
+.\scripts\build-installer.ps1
+```
+
+Publishes self-contained (no .NET needed on the target machine) and packages it with WiX 5
+into `dist/VPNTray-Setup-<version>-x64.msi`. Needs the WiX CLI and its UI extension:
+
+```powershell
+dotnet tool install --global wix
+wix extension add --global WixToolset.UI.wixext
+```
+
+The version comes from `<Version>` in `src/VPNTray/VPNTray.csproj` and is the only place to
+bump it — the script feeds it to the MSI's `ProductVersion` and to the output file name, and
+the app reads the same stamp for its title bar.
+
 ## First launch
 
 1. Double-click `VPNTray.exe`. **Accept the UAC prompt.** The app starts elevated, and a tray icon appears in the notification area.

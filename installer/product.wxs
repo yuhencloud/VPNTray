@@ -1,12 +1,20 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
 
+  <!-- Passed in by scripts/build-installer.ps1, which reads it from VPNTray.csproj so the
+       assembly stamp, the MSI's ProductVersion and the output file name cannot drift apart.
+       The fallback keeps a bare `wix build` working, and 0.0.0 is obvious enough in
+       Add/Remove Programs that nobody mistakes such a build for a release. -->
+  <?ifndef Version?>
+    <?define Version = "0.0.0"?>
+  <?endif?>
+
   <!-- VPNTray installer: self-contained WPF app (bundles openconnect + Wintun).
        Per-machine install into Program Files; requires elevation (the app itself
        also runs as administrator). -->
   <Package Name="VPNTray"
            Manufacturer="VPNTray"
-           Version="1.1.0"
+           Version="$(var.Version)"
            UpgradeCode="70d706ed-e94d-44b1-a7d1-d3dcc6ce78e7"
            Scope="perMachine"
            Compressed="yes">

@@ -12,6 +12,10 @@
     <PlatformTarget>x64</PlatformTarget>
     <ApplicationManifest>App/app.manifest</ApplicationManifest>
     <ApplicationIcon>Resources/icons/app.ico</ApplicationIcon>
+    <!-- Single source of truth for the release number. Shown in the title bar via
+         Util/AppVersion, and scripts/build-installer.ps1 reads it from here to set the MSI's
+         ProductVersion and the .msi file name. Bump it here only. -->
+    <Version>1.1.0</Version>
   </PropertyGroup>
 
   <ItemGroup>

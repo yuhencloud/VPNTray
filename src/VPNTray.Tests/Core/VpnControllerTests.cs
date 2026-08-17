@@ -316,6 +316,36 @@ public class VpnControllerTests
         Assert.Equal(1, dns.CleanupCount);
     }
 
+    /// <summary>
+    /// The rules are machine-wide and outlive the process, so a run that was killed rather than
+    /// asked to quit — by the installer, from Task Manager, or by a crash — leaves them pinning
+    /// those domains to the public resolvers with no tunnel to justify it.
+    /// </summary>
+    [Fact]
+    public void RemoveStaleSplitDnsRules_WhenNotConnected_RemovesWhateverIsLeftOver()
+    {
+        var dns = new FakeSplitDns();
+        var c = Build(new FakeOpenConnect(), new FakeNetworkMonitor(), () => Good(), dns);
+
+        c.RemoveStaleSplitDnsRules();
+
+        Assert.Equal(1, dns.CleanupCount);
+    }
+
+    [Fact]
+    public async Task RemoveStaleSplitDnsRules_WhileConnected_LeavesThemAlone()
+    {
+        // Not stale — they belong to this tunnel and are doing their job.
+        var dns = new FakeSplitDns();
+        var c = Build(new FakeOpenConnect(), new FakeNetworkMonitor(), () => Good(), dns);
+        await c.ConnectAsync();
+        var before = dns.CleanupCount;
+
+        c.RemoveStaleSplitDnsRules();
+
+        Assert.Equal(before, dns.CleanupCount);
+    }
+
     [Fact]
     public void StopForShutdown_UnsubscribesFromReachability()
     {

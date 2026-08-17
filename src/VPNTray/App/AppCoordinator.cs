@@ -16,6 +16,7 @@ public sealed class AppCoordinator
     private readonly DependencyChecker _checker = new(new SystemProcessRunner());
     private TaskbarIcon _tray = null!;
     private SettingsWindow? _settings;
+    private SessionEndListener? _sessionEnd;
     private int _stopped;
     private static Timer? _exitBackstop;
 
@@ -40,21 +41,74 @@ public sealed class AppCoordinator
         try { Application.Current?.Dispatcher.BeginInvoke(UpdateTray); } catch { /* shutting down */ }
     }
 
-    public void Start()
+    /// <summary>
+    /// Windows asks the app to go away: a sign-out or shutdown, or Restart Manager clearing the
+    /// way for an installer. Cleanup alone is not an answer — the process has to actually exit,
+    /// or Restart Manager reports that it could not close the application and the install stops
+    /// with "please ensure the applications holding files in use are closed".
+    ///
+    /// Logged because that failure is otherwise indistinguishable from Restart Manager never
+    /// having reached the app at all, which is a different problem with a different fix.
+    /// </summary>
+    private void OnSessionEnding(object? sender, SessionEndingCancelEventArgs e)
+    {
+        AppLogger.Shared.Info($"session ending ({e.ReasonSessionEnding}): shutting down");
+        Exit();
+    }
+
+    /// <summary>
+    /// Restart Manager (or a real shutdown) confirmed the session is ending. Reached through
+    /// <see cref="SessionEndListener"/> rather than WPF's own event, which only fires when the
+    /// app happens to have a window open.
+    /// </summary>
+    private void OnSessionEndConfirmed() => Exit();
+
+    /// <summary>
+    /// Tear down and go. Safe to reach twice: StopForShutdown is idempotent and a second
+    /// Shutdown on an application already shutting down does nothing.
+    /// </summary>
+    private void Exit()
+    {
+        // Armed on every exit route, not only the tray menu. A teardown that wedges leaves
+        // Restart Manager reporting it could not close the app, which is exactly what stops an
+        // installer — so "eventually gone" has to be guaranteed, not hoped for.
+        ArmForcedExit(TimeSpan.FromSeconds(15));
+        StopForShutdown();
+        AppLogger.Shared.Info("exit: calling Application.Shutdown");
+        Application.Current.Shutdown();
+        AppLogger.Shared.Info("exit: Application.Shutdown returned");
+    }
+
+    /// <param name="background">
+    /// True only when the logon task started us. Every other route in — the installer's "Launch
+    /// VPNTray", the Start menu, the exe — is a deliberate request, and answering it with nothing
+    /// but a tray icon reads as the launch having failed.
+    /// </param>
+    public void Start(bool background = false)
     {
         _startup.ApplyPreference();
+
+        // Before anything else, and kept for the life of the process: this is the only window the
+        // app reliably has, and Restart Manager needs one to ask the app to close. Not disposed
+        // on the exit path — it would mean destroying a window from inside its own message
+        // handler, and the process is going away regardless.
+        _sessionEnd = new SessionEndListener(OnSessionEndConfirmed);
+
         _tray = new TaskbarIcon { ToolTipText = "VPNTray" };
         _tray.TrayLeftMouseUp += (_, _) => ShowSettings();   // single left-click opens the main window
         BuildMenu();                                          // right-click shows the context menu
         _controller.StartNetworkMonitoring();
-        Application.Current.SessionEnding += (_, _) => StopForShutdown();
+        Application.Current.SessionEnding += OnSessionEnding;
 
-        var config = _store.Load();
-        if (config is null || !config.IsConfigured)
-        {
-            _controller.MarkSetupIncomplete();
-            ShowSettings();
-        }
+        // The installer terminates a running VPNTray to get at its files, and Task Manager and
+        // crashes end it just as abruptly — none of which runs the exit path. Off the UI thread
+        // because it shells out to powershell.
+        _ = Task.Run(_controller.RemoveStaleSplitDnsRules);
+
+        bool configured = _store.Load()?.IsConfigured == true;
+        if (!configured) _controller.MarkSetupIncomplete();
+        // Unconfigured always opens — there is nothing else the user could do next.
+        if (!configured || !background) ShowSettings();
         UpdateTray();
     }
 
@@ -114,7 +168,7 @@ public sealed class AppCoordinator
             return;
         }
 
-        var win = new SettingsWindow(_store, _checker, _controller);
+        var win = new SettingsWindow(_store, _checker, _controller, _startup);
         _settings = win;
         win.Closed += (_, _) => _settings = null;
         win.Saved += async impact =>
@@ -160,11 +214,7 @@ public sealed class AppCoordinator
     private void Quit()
     {
         AppLogger.Shared.Info("quit: requested from tray menu");
-        ArmForcedExit(TimeSpan.FromSeconds(15));
-        StopForShutdown();
-        AppLogger.Shared.Info("quit: calling Application.Shutdown");
-        Application.Current.Shutdown();
-        AppLogger.Shared.Info("quit: Application.Shutdown returned");
+        Exit();
     }
 
     /// <summary>

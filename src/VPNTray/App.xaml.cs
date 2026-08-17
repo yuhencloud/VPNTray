@@ -23,8 +23,11 @@ public partial class App : Application
             args.Handled = true;
         };
 
+        bool background = e.Args.Any(
+            a => string.Equals(a, StartupManager.BackgroundFlag, StringComparison.OrdinalIgnoreCase));
+
         _coordinator = new AppCoordinator();
-        _coordinator.Start();
+        _coordinator.Start(background);
     }
 
     protected override void OnExit(ExitEventArgs e)

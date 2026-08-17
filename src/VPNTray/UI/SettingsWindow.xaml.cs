@@ -24,6 +24,7 @@ public partial class SettingsWindow : Window
     private readonly ConfigStore _store;
     private readonly DependencyChecker _checker;
     private readonly VpnController _controller;
+    private readonly StartupManager _startup;
 
     // Status-dot colors (match the tray icon set in scripts/make_icons.py).
     private static readonly Brush DotGreen = Frozen(0x22, 0xC5, 0x5E);
@@ -33,13 +34,17 @@ public partial class SettingsWindow : Window
 
     public event Action<SaveImpact>? Saved;
 
-    public SettingsWindow(ConfigStore store, DependencyChecker checker, VpnController controller)
+    public SettingsWindow(
+        ConfigStore store, DependencyChecker checker, VpnController controller, StartupManager startup)
     {
         _store = store;
         _checker = checker;
         _controller = controller;
+        _startup = startup;
         InitializeComponent();
-        SourceInitialized += (_, _) => WindowEffects.Apply(this);
+        // Attach, not Apply: the DWM effects have to be re-established on every DPI change,
+        // not just once at startup.
+        WindowEffects.Attach(this);
         VersionText.Text = AppVersion.Display;
         Load();
         WireChangeTracking();
@@ -140,6 +145,8 @@ public partial class SettingsWindow : Window
         BypassDomainsBox.Text = string.Join(", ", c.SplitDnsPublicNamespaces);
         BypassServersBox.Text = string.Join(", ", c.SplitDnsPublicServers);
         UpdateDnsSummary();
+        // Wires its own handlers, so it must not also be wired in WireChangeTracking.
+        SyncLaunchAtLogin();
     }
 
     private void OnToggleDnsSection(object sender, MouseButtonEventArgs e)
@@ -213,6 +220,53 @@ public partial class SettingsWindow : Window
     /// Re-check button is for, and hanging a process spawn off an expand would make the
     /// button look decorative while hiding the real trigger in an invisible gesture.
     /// </summary>
+    private void OnToggleStartupSection(object sender, MouseButtonEventArgs e)
+    {
+        bool open = StartupPanel.Visibility != Visibility.Visible;
+        StartupPanel.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+        StartupChevron.Text = open ? "▾" : "▸";
+    }
+
+    /// <summary>
+    /// Applies straight away rather than waiting for Save. This preference does not live in the
+    /// config file at all — it is a registry value plus a registered scheduled task — so routing
+    /// it through Save would imply a rollback story that does not exist.
+    ///
+    /// Off the UI thread because it shells out to schtasks. The checkbox is then reset from what
+    /// <see cref="StartupManager.IsEnabled"/> actually reports, so a failed schtasks call shows
+    /// up as the box springing back instead of a UI that quietly disagrees with the machine.
+    /// </summary>
+    private async Task ApplyLaunchAtLoginAsync(bool enable)
+    {
+        LaunchAtLoginBox.IsEnabled = false;
+        try
+        {
+            await Task.Run(() => { if (enable) _startup.Enable(); else _startup.Disable(); });
+        }
+        finally
+        {
+            LaunchAtLoginBox.IsEnabled = true;
+            SyncLaunchAtLogin();
+        }
+    }
+
+    /// <summary>Reflects the machine's actual state, not what was last clicked.</summary>
+    private void SyncLaunchAtLogin()
+    {
+        bool on = _startup.IsEnabled();
+        // Detached while writing, or the write would re-enter ApplyLaunchAtLoginAsync.
+        LaunchAtLoginBox.Checked -= OnLaunchAtLoginChanged;
+        LaunchAtLoginBox.Unchecked -= OnLaunchAtLoginChanged;
+        LaunchAtLoginBox.IsChecked = on;
+        LaunchAtLoginBox.Checked += OnLaunchAtLoginChanged;
+        LaunchAtLoginBox.Unchecked += OnLaunchAtLoginChanged;
+
+        StartupSummary.Text = on ? "launches at login" : "manual start";
+    }
+
+    private async void OnLaunchAtLoginChanged(object sender, RoutedEventArgs e)
+        => await ApplyLaunchAtLoginAsync(LaunchAtLoginBox.IsChecked == true);
+
     private void OnToggleToolsSection(object sender, MouseButtonEventArgs e)
     {
         bool open = ToolsPanel.Visibility != Visibility.Visible;

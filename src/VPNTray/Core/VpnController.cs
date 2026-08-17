@@ -166,6 +166,21 @@ public sealed class VpnController : INotifyPropertyChanged
     }
 
     /// <summary>
+    /// Drops split-DNS rules left behind by a run that never got to clean up — terminated by the
+    /// installer, ended from Task Manager, or lost to a crash. NRPT rules are machine-wide and
+    /// outlive the process, so until something removes them the affected domains stay pinned to
+    /// the public resolvers with no tunnel to justify it.
+    ///
+    /// Connect clears leftovers too, but only once the user next connects; this covers the gap
+    /// from app start until then. No-op while connected, where the rules are not stale at all.
+    /// </summary>
+    public void RemoveStaleSplitDnsRules()
+    {
+        if (State.Status == VpnStatus.Connected) return;
+        _splitDns.Cleanup();
+    }
+
+    /// <summary>
     /// Re-reads the config and swaps the split-DNS rules underneath a live tunnel. For a
     /// settings change that only moved the exception lists: the rules are NRPT entries, which
     /// openconnect neither installs nor knows about, so there is nothing to reconnect for.

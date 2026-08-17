@@ -127,6 +127,29 @@
                                    Text="The VPN does not touch DNS at all; your normal resolver keeps answering everything. Internal names such as *.corp return NXDOMAIN."/>
                     </StackPanel>
 
+                    <!-- Startup -->
+                    <Border Height="1" Background="{StaticResource Divider}" Margin="0,14,0,0"/>
+                    <Border Background="Transparent" Cursor="Hand" Padding="0,12,0,2"
+                            MouseLeftButtonUp="OnToggleStartupSection">
+                        <DockPanel>
+                            <TextBlock x:Name="StartupChevron" DockPanel.Dock="Left" Text="&#x25B8;"
+                                       FontSize="10" Foreground="{StaticResource TextSecondary}"
+                                       Margin="0,0,7,0" VerticalAlignment="Center"/>
+                            <TextBlock DockPanel.Dock="Left" Text="Startup" Style="{StaticResource H1}"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock x:Name="StartupSummary" Style="{StaticResource Body}" FontSize="11"
+                                       TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                       HorizontalAlignment="Right" VerticalAlignment="Center"
+                                       Margin="10,0,0,0"/>
+                        </DockPanel>
+                    </Border>
+
+                    <StackPanel x:Name="StartupPanel" Visibility="Collapsed">
+                        <CheckBox x:Name="LaunchAtLoginBox" Content="Launch at login" Margin="0,10,0,0"/>
+                        <TextBlock Style="{StaticResource Body}" FontSize="11" TextWrapping="Wrap" Margin="24,4,0,0"
+                                   Text="Registers a scheduled task that starts VPNTray elevated at sign-in, so it comes up without a UAC prompt. Turning this off deletes the task. Applied immediately — this one is not part of Save."/>
+                    </StackPanel>
+
                     <!-- Bundled-tools check (openconnect / wintun / vpnc script). Same
                          collapsible shape as DNS above; the header carries the verdict, so the
                          section only has to be opened to find out which check failed. -->

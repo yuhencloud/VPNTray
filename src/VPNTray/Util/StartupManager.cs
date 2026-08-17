@@ -9,13 +9,20 @@ public sealed class StartupManager
     private const string RegistryKey = @"Software\VPNTray";
     private const string RegistryValue = "LaunchAtLogin";
 
+    /// <summary>
+    /// Passed only by the logon task, so the app can tell "Windows started me" from "somebody
+    /// asked for me" and keep quiet in the first case. The installer's launch, the Start menu
+    /// shortcut and the exe itself all arrive without it and get a window.
+    /// </summary>
+    public const string BackgroundFlag = "--background";
+
     public static IReadOnlyList<string> BuildCreateArgs(string taskName, string exePath) => new[]
     {
         "/Create", "/F",
         "/TN", taskName,
         "/SC", "ONLOGON",
         "/RL", "HIGHEST",
-        "/TR", $"\"{exePath}\"",
+        "/TR", $"\"{exePath}\" {BackgroundFlag}",
     };
 
     public bool IsEnabled()

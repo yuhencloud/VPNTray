@@ -12,11 +12,6 @@
     <SolidColorBrush x:Key="FooterBg" Color="#EFEBE1"/>
     <SolidColorBrush x:Key="Divider" Color="#E5E0D4"/>
 
-    <!-- Translucent variants for the acrylic/frosted-glass window (alpha ~0xE6 = 90%). -->
-    <SolidColorBrush x:Key="WindowBgGlass" Color="#E6F4F1EA"/>
-    <SolidColorBrush x:Key="CardBgGlass" Color="#E6FBFAF6"/>
-    <SolidColorBrush x:Key="FooterBgGlass" Color="#ECEFEBE1"/>
-
     <SolidColorBrush x:Key="TextPrimary" Color="#2A2824"/>
     <SolidColorBrush x:Key="TextSecondary" Color="#76726A"/>
 

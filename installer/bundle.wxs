@@ -1,0 +1,46 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+
+  <!-- Passed in by scripts/build-installer.ps1, same single source as the MSI. -->
+  <?ifndef Version?>
+    <?define Version = "0.0.0"?>
+  <?endif?>
+
+  <!-- A bootstrapper whose reason for existing is elevation.
+       ==================================================================================
+       VPNTray is manifested requireAdministrator, and Windows Installer on its own cannot
+       ask such an app to close. Both halves of msiexec are blocked, for different reasons:
+
+         client   session 1, MEDIUM integrity  - can see the app's window, but UIPI forbids
+                                                 posting to a higher-integrity process
+         service  session 0, high integrity    - allowed, but window stations are per-session
+                                                 so it cannot see a session 1 window at all
+
+       The result is Error 1611, "The setup was unable to automatically close all requested
+       applications", and — because RemoveExistingProducts has already begun by then — a
+       failed install that leaves nothing installed.
+
+       Burn elevates itself and runs the chained MSI from that elevated process, in the
+       user's own session. That single process is both allowed to post the message and able
+       to see the window, so util:CloseApplication in product.wxs finally has a path that
+       works, and VPNTray exits cleanly instead of being killed.
+       ================================================================================== -->
+  <Bundle Name="VPNTray"
+          Manufacturer="VPNTray"
+          Version="$(var.Version)"
+          UpgradeCode="21e74a91-a952-4231-9582-7e3829b2fde1"
+          IconSourceFile="..\src\VPNTray\Resources\icons\app.ico"
+          Compressed="yes">
+
+    <!-- Shows the MSI's own wizard rather than a second one of its own: the install-directory
+         page, the themed bitmaps and the "Launch VPNTray" checkbox all live in product.wxs and
+         there is no reason to reimplement them here. Burn stays out of the way. -->
+    <BootstrapperApplication>
+      <bal:WixInternalUIBootstrapperApplication />
+    </BootstrapperApplication>
+
+    <Chain>
+      <MsiPackage SourceFile="$(var.MsiPath)" Vital="yes" />
+    </Chain>
+  </Bundle>
+</Wix>

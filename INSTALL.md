@@ -21,7 +21,7 @@ VPNTray 运行时需要的原生文件**已提交在 `src/VPNTray/Resources/`**�
 | `openconnect.exe` + 它的 `lib*.dll` / `zlib1.dll` 一套依赖 | OpenConnect **v8.10**（anyconnect/DTLS/ESP），来自 [horar/openconnect](https://github.com/horar/openconnect) 预编译 MinGW64 构建，已校验 SHA-512。 |
 | `wintun.dll` | Wintun **0.14.1**（amd64），[wintun.net](https://www.wintun.net/) 官方构建。 |
 | `vpnc-script-win.js` | VPN 配置脚本，与 openconnect 构建版本匹配。 |
-| `vpnc-script-win--no-dns.js` | 同一脚本，但**禁用了 DNS 配置那一段**。只有关掉「Use the VPN's internal DNS」时才用它——关掉之后内网域名（`*.corp…`）完全解析不了，所以不是默认值。 |
+| `vpnc-script-win--no-dns.js` | 同一脚本，但**禁用了 DNS 配置那一段**。只有 DNS 模式选「Send every name to public DNS」时才用它——关掉之后内网域名（`*.corp…`）完全解析不了，所以不是默认值。 |
 
 > 💡 所有 `lib*.dll` / `zlib1.dll` 是 `openconnect.exe` 的运行时依赖，必须和它放在同一个 `Resources/` 文件夹里，否则 openconnect 起不来。详见 [`src/VPNTray/Resources/README.md`](src/VPNTray/Resources/README.md)（含来源、版本、许可证，以及怎么换更新的 openconnect）。
 
@@ -59,7 +59,7 @@ dotnet build -c Release
 
 > 💡 设置没填完时，托盘菜单只显示 **Open Settings…** 和 **Quit** 两项。
 
-窗口底部还有一个 **Check tools** 按钮：点它检查随包附带的原生工具（openconnect / wintun / vpnc 脚本）是否齐全，绿色对勾表示正常。原生工具已随 app 打包，正常无需操作，仅在连接异常时用来排查。
+窗口底部有一个 **Tools** 折叠区：开窗时自动检查随包原生工具（openconnect / wintun / vpnc 脚本），结论直接显示在标题行上，有问题时标红。展开可看逐项明细和 **Re-check** 按钮。原生工具已随 app 打包，正常无需操作，仅在连接异常时用来排查。
 
 #### 如何导入 TOTP 密钥
 
@@ -81,7 +81,7 @@ VPN 管理员一般给你一张 `otpauth://` QR 码图片。TOTP 密钥输入框
 | **Connect** | 生成 TOTP 并建立 VPN 隧道 |
 | **Disconnect** | 断开隧道（同时清除自动重连意图）|
 | **Reconnect** | 先断开再连 |
-| **Open Settings…** | 修改所有字段，包括 DNS（内网 DNS 开关、公网 DNS 绕行域名）和 Advanced（路径、开机自启）|
+| **Open Settings…** | 修改所有字段，包括 DNS（内网 / 公网模式、公网 DNS 例外）、Startup（开机自启）和 Tools（依赖自检）|
 | **Quit** | 退出 app（连着的话先断开）|
 
 托盘图标上的状态小圆点：
@@ -91,14 +91,14 @@ VPN 管理员一般给你一张 `otpauth://` QR 码图片。TOTP 密钥输入框
 - ⚫ **灰色**：未连接
 
 ### 修改配置
-左键单击托盘图标，或右键菜单点 **Open Settings…**，打开主界面，可以改全部五个字段（用户名、密码前缀、TOTP 密钥、网关、证书指纹），底部 **Check tools** 按钮用来排查随包原生工具。
+左键单击托盘图标，或右键菜单点 **Open Settings…**，打开主界面，可以改全部五个字段（用户名、密码、TOTP 密钥、网关、证书指纹）；下方还有 DNS、Startup、Tools 三个折叠区。
 
 ### 退出
 菜单点 **Quit**。如果当前连着 VPN，会先断开再退出，不会留下僵尸 `openconnect.exe` 进程。
 
 ## 自动化行为
 
-- **开机自启**：通过注册一个**以最高权限运行的计划任务（Scheduled Task）**实现，登录时静默、已提权地启动 app（**不弹 UAC**）。不想要的话 Settings → Advanced 里关掉 `Launch at login`。
+- **开机自启**：通过注册一个**以最高权限运行的计划任务（Scheduled Task）**实现，登录时静默、已提权地启动 app（**不弹 UAC**）。不想要的话 Settings → Startup 里关掉 `Launch at login`（改动立即生效，不用点 Save）。该计划任务带 `--background` 参数，是**唯一**只出托盘图标不开窗的启动方式；安装器的 `Launch VPNTray`、开始菜单、直接双击 exe 都会开窗 —— 用户主动启动却只看到一个托盘图标，跟没启动起来没区别。
 - **断网自动断开**：连接中如果网络断了（切网、断网），会主动断开 VPN 避免卡死。
 - **联网自动重连**：如果之前是你**主动**连的，网络恢复后会自动重连；之前主动 Disconnect 过、或上次是连接失败，则**不会**自动重连（避免对着错误配置死循环重试）。
 - **内网 DNS + split-DNS 补偿**：默认让 VPN 接管 DNS，否则 `*.corp…` 之类内网域名一个都解析不出来。但 `vpnc-script-win.js` 整段忽略服务端下发的 `CISCO_SPLIT_DNS`，把内网 DNS 硬绑到隧道网卡上（metric 比 Wi-Fi 低），结果连公网域名也去问内网 DNS——内网 DNS 会把它们解析成云内网地址（100.64.0.0/10），数据包却按默认路由从物理网卡发出去，直接黑洞。所以 VPNTray 支持给受影响的公网后缀加 NRPT 规则强制走公网 DNS（AnyConnect 原生就是这么做的）。列表在 Settings → DNS → **Advanced — public-DNS exceptions**，**默认为空** —— 哪些域名会被某个网关的内网解析器解析错，是那个部署自己的特性，而 NRPT 规则是机器级的，预置一个猜测等于让每个装机的人把解析请求交给第三方去解决一个他可能没有的问题。<br><br>要加之前先确认故障真的存在，对比两个解析器的答案：`Resolve-DnsName 域名 -Server <隧道网卡上的内网解析器>` 和 `Resolve-DnsName 域名 -Server 8.8.8.8`。内网答案落在隧道不路由的网段（比如 `100.64.0.0/10`）才是需要加例外的信号；两边答案一致就不用加。<br><br>规则打了 `vpntray_split_dns` 标记，断开 / 退出 / openconnect 意外死掉时都会清理，可用 `Get-DnsClientNrptRule` 查看。
@@ -132,7 +132,7 @@ VPN 管理员一般给你一张 `otpauth://` QR 码图片。TOTP 密钥输入框
 ## 卸载
 
 1. 托盘菜单点 **Quit** 退出（会先断开当前 VPN）。
-2. 如果开了开机自启，关掉 Settings → Advanced 的 `Launch at login`（或在"任务计划程序"里删掉对应计划任务）。
+2. 如果开了开机自启，关掉 Settings → Startup 的 `Launch at login`（或在"任务计划程序"里删掉对应计划任务）。
 3. 删掉运行所在的 app 目录（`bin\Release\net8.0-windows`）。
 4. 删掉配置和密钥：删除 `%APPDATA%\VPNTray` 整个目录。
 

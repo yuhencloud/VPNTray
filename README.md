@@ -30,7 +30,7 @@ The native files VPNTray needs at runtime are **committed in `src/VPNTray/Resour
 | `openconnect.exe` + its `lib*.dll` / `zlib1.dll` set | OpenConnect **v8.10** (anyconnect/DTLS/ESP), from the [horar/openconnect](https://github.com/horar/openconnect) prebuilt MinGW64 build, SHA-512 verified. |
 | `wintun.dll` | Wintun **0.14.1** (amd64), official build from [wintun.net](https://www.wintun.net/). |
 | `vpnc-script-win.js` | The VPN-configuration script, version-matched to the openconnect build. |
-| `vpnc-script-win--no-dns.js` | The same script with its **DNS-configuration block disabled**. Only used when you turn *Use the VPN's internal DNS* **off** — with it off, internal names (`*.corp…`) do not resolve at all, so it is not the default. |
+| `vpnc-script-win--no-dns.js` | The same script with its **DNS-configuration block disabled**. Only used when the DNS mode is set to *Send every name to public DNS* — with it off, internal names (`*.corp…`) do not resolve at all, so it is not the default. |
 
 ### DNS and the split-DNS rules
 
@@ -80,13 +80,30 @@ Run `VPNTray.exe`. Because the app is marked `requireAdministrator`, Windows wil
 .\scripts\build-installer.ps1
 ```
 
-Publishes self-contained (no .NET needed on the target machine) and packages it with WiX 5
-into `dist/VPNTray-Setup-<version>-x64.msi`. Needs the WiX CLI and its UI extension:
+Publishes self-contained (no .NET needed on the target machine) and packages it with WiX 5 into
+two outputs:
+
+| Output | Use |
+| ------ | --- |
+| `dist/VPNTray-Setup-<version>-x64.exe` | **Ship this.** A Burn bundle that elevates and then runs the MSI from the elevated process, in the user's own session — the only context that can ask a running, `requireAdministrator` VPNTray to close (see the comment block in `installer/bundle.wxs`). It shows the MSI's own wizard, not a second one. |
+| `dist/VPNTray-Setup-<version>-x64.msi` | The package itself, for deployment tooling that wants an MSI. Installing it directly cannot close a running VPNTray unless msiexec is launched from an already-elevated prompt. |
+
+Needs the WiX CLI and three extensions:
 
 ```powershell
 dotnet tool install --global wix
-wix extension add --global WixToolset.UI.wixext
+wix extension add --global WixToolset.UI.wixext/5.0.2
+wix extension add --global WixToolset.Util.wixext/5.0.2
+wix extension add --global WixToolset.BootstrapperApplications.wixext/5.0.2
 ```
+
+The bootstrapper extension is the one WiX 4 called `WixToolset.Bal.wixext`; asking for that
+name on WiX 5 installs an assembly whose name no longer matches and `wix extension list`
+reports it as `(damaged)`.
+
+Pin the extension versions to the `wix` CLI's own major version — asking for them unpinned
+resolves to the newest release, which for a v5 CLI fails with `WIX6101: Could not find expected
+package root folder wixext5`.
 
 The version comes from `<Version>` in `src/VPNTray/VPNTray.csproj` and is the only place to
 bump it — the script feeds it to the MSI's `ProductVersion` and to the output file name, and
@@ -100,7 +117,7 @@ the app reads the same stamp for its title bar.
 
 Reopen the window any time with a **single left-click** on the tray icon, or **right-click → Open Settings…**. Until setup is complete, the tray menu only shows **Open Settings…** and **Quit**.
 
-The window also has a **Check tools** button that verifies the bundled native tools (openconnect / wintun / vpnc script) — green checks mean all good. The tools ship with the app, so this is only for troubleshooting a failed connection.
+A **Tools** section at the bottom checks the bundled native tools (openconnect / wintun / vpnc script) as soon as the window opens; its header carries the verdict, red when something failed. Expand it for the per-check detail and a **Re-check** button. The tools ship with the app, so this only matters when a connection fails.
 
 ## Importing your TOTP Base32 secret
 
@@ -136,7 +153,7 @@ The status dot on the tray icon shows state:
 
 ## Automated behaviors
 
-- **Launch at login** — registers a **Scheduled Task** that runs with highest privileges, so the app starts silently and already elevated at logon (no UAC prompt at startup). Toggle it in Settings → Advanced.
+- **Launch at login** — registers a **Scheduled Task** that runs with highest privileges, so the app starts silently and already elevated at logon (no UAC prompt at startup). Toggle it under **Settings → Startup**. That task launches the app with `--background`, which is the one route in that stays tray-only; every other route — the installer's *Launch VPNTray*, the Start menu, the exe itself — opens the window, because answering a deliberate launch with nothing but a tray icon reads as a failure.
 - **Auto-disconnect / auto-reconnect** — if the network drops while connected, the VPN is dropped cleanly; when the network returns, it reconnects automatically **only if you connected manually**. Failed connects do not loop-retry.
 - **Disconnect on quit** — every exit path disconnects the VPN first, so no orphaned `openconnect.exe` is left running.
 
@@ -152,7 +169,7 @@ The status dot on the tray icon shows state:
 ## Uninstall
 
 1. **Quit** the app from the tray menu (this disconnects any active VPN).
-2. If you enabled Launch at login, remove the Scheduled Task (Settings → Advanced toggle off, or delete it from Task Scheduler).
+2. If you enabled Launch at login, remove the Scheduled Task (switch it off under Settings → Startup, or delete it from Task Scheduler).
 3. Delete the app folder (the `bin\Release\net8.0-windows` directory you ran from).
 4. Delete your config and secrets: remove `%APPDATA%\VPNTray`.
 

@@ -1,5 +1,6 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
-     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
 
   <!-- Passed in by scripts/build-installer.ps1, which reads it from VPNTray.csproj so the
        assembly stamp, the MSI's ProductVersion and the output file name cannot drift apart.
@@ -19,7 +20,46 @@
            Scope="perMachine"
            Compressed="yes">
 
-    <MajorUpgrade DowngradeErrorMessage="A newer version of VPNTray is already installed." />
+    <!-- AllowSameVersionUpgrades because rebuilding without bumping the version is the normal
+         case during development, and the default behaviour there is silently wrong twice over:
+         the upgrade is not detected, so the rebuild registers as a SEPARATE product pointing at
+         the same directory, and MSI's file-versioning rules then refuse to overwrite binaries
+         whose FileVersion is unchanged — leaving the previous build installed and running while
+         Add/Remove Programs grows an entry each time. Removing the old product first makes the
+         files get deleted and re-copied, so content changes land even at an equal version. -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of VPNTray is already installed." />
+
+    <!-- Backstop for a running app; Restart Manager is the primary path and closes it back at
+         InstallValidate, before RemoveExistingProducts gets as far as deleting the folder.
+
+         Target is a WINDOW, not the exe: this action finds what to close by enumerating windows.
+         With Target="VPNTray.exe" it matched nothing and returned success in 5ms without touching
+         a running app — a tray-resident process has no window to enumerate. The app now keeps one
+         alive for exactly this (Util/SessionEndListener, which owns the matching title) and exits
+         cleanly on WM_CLOSE, so the close message is enough and TerminateProcess stays a fallback.
+
+         Without any of this the install fails at "Could not remove the folder C:\Program
+         Files\VPNTray" (error 2911) while removing the previous product, and since that removal
+         has already begun the result is nothing installed at all.
+
+         CloseMessage, NOT ElevatedCloseMessage. Elevating routes the work into the deferred
+         custom action, which runs in the MSI service — session 0. Windows keeps window stations
+         per session, so EnumWindows there cannot see a window belonging to the logged-on user's
+         session 1, and a window-matching action finds nothing at all. The log for that reads as
+         a 5ms success with no output.
+
+         Run from the immediate action instead, it is in the user's session and can see the
+         window. It can only send to it if the installer itself is elevated, though: VPNTray is
+         manifested requireAdministrator, and UIPI blocks a medium-integrity process from posting
+         to a high-integrity one. Launch the MSI from an elevated prompt and this works; launch it
+         by double-click and Windows Installer elevates only its service half, leaving nothing
+         anywhere that can both see the window and be allowed to talk to it. -->
+    <util:CloseApplication Id="CloseVPNTray"
+                           Target="VPNTray.SessionSink"
+                           CloseMessage="yes"
+                           TerminateProcess="0"
+                           RebootPrompt="no" />
     <MediaTemplate EmbedCab="yes" />
 
     <!-- Product icon (extracted from the main exe) shown in Add/Remove Programs. -->
@@ -56,5 +96,38 @@
     <!-- Wizard UI with install-directory selection. -->
     <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
     <WixVariable Id="WixUILicenseRtf" Value="license.rtf" />
+
+    <!-- Not decoration. WixUI's ExitDialog declares its optional checkbox without
+         Transparent="yes", so the control paints the dialog's own background colour; against
+         WiX's stock bitmap, which is white in that region, it shows up as a grey band around the
+         "Launch VPNTray" row. That control lives inside the UI extension's wixlib and cannot be
+         patched from here, so these bitmaps keep COLOR_BTNFACE where the checkbox sits and the
+         seam disappears. Regenerate with scripts/make_installer_art.py. -->
+    <WixVariable Id="WixUIDialogBmp" Value="dialog.bmp" />
+    <WixVariable Id="WixUIBannerBmp" Value="banner.bmp" />
+
+    <!-- "Launch VPNTray" on the final wizard page, ticked by default.
+
+         Impersonate=yes so it starts as the person who ran the installer, in their session:
+         the app is a tray application, and a copy launched from the MSI service would have no
+         desktop to put its icon on. The consequence is a UAC prompt, because the app is
+         manifested requireAdministrator and ShellExecute honours that — unavoidable here, and
+         the same prompt every launch produces until "Launch at login" registers its task.
+
+         Return=ignore: a launch that fails must not fail an install that already succeeded.
+         WixShellExec is a ShellExecute call, so it returns without waiting on the app anyway. -->
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch VPNTray" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <!-- SetProperty, not Property: a Property element's value is a build-time literal, so
+         [INSTALLFOLDER] would ship through unexpanded. This resolves it at install time, once
+         CostFinalize has settled the directory layout. -->
+    <SetProperty Id="WixShellExecTarget" Value="[INSTALLFOLDER]VPNTray.exe"
+                 After="CostFinalize" Sequence="both" />
+    <CustomAction Id="LaunchApplication" DllEntry="WixShellExec" BinaryRef="Wix4UtilCA_X64"
+                  Impersonate="yes" Return="ignore" />
+    <UI>
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchApplication"
+               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+    </UI>
   </Package>
 </Wix>

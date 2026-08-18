@@ -157,9 +157,9 @@ public sealed class VpnController : INotifyPropertyChanged
         _watchdog?.Dispose();
         _watchdog = null;
         try { _openConnect.Stop(); } catch { /* ignore */ }
-        // Unconditional, not gated on SkipDnsModification: the tunnel's DNS goes away with
-        // the adapter, so leaving the rules behind would pin those domains to public DNS
-        // for good — including across a settings change that turned split-DNS off.
+        // Unconditional, not gated on the DNS mode: every rule either mode installs names a
+        // resolver that goes away with the adapter, so leaving them behind pins those domains
+        // to a dead server — including across a settings change that emptied the lists.
         // Off the caller's thread because the WPF sync context resumes the connect/disconnect
         // continuations on the UI thread, and this spawns powershell.
         await Task.Run(_splitDns.Cleanup);
@@ -182,7 +182,7 @@ public sealed class VpnController : INotifyPropertyChanged
 
     /// <summary>
     /// Re-reads the config and swaps the split-DNS rules underneath a live tunnel. For a
-    /// settings change that only moved the exception lists: the rules are NRPT entries, which
+    /// settings change that only moved the suffix lists: the rules are NRPT entries, which
     /// openconnect neither installs nor knows about, so there is nothing to reconnect for.
     ///
     /// No-op unless connected — Connect installs them itself, and applying them without a
@@ -200,20 +200,55 @@ public sealed class VpnController : INotifyPropertyChanged
         // that the tunnel really was left alone.
         AppLogger.Shared.Info("split-DNS: refreshing rules, tunnel untouched");
 
-        // Only reachable if the mode was flipped without a reconnect; the rules would
-        // otherwise stay behind with nothing left to justify them.
-        if (config.SkipDnsModification) await Task.Run(_splitDns.Cleanup);
-        else await ApplySplitDnsAsync(config);
+        await ApplySplitDnsAsync(config);
     }
 
     /// <summary>
-    /// No-op when the tunnel's DNS was never touched — nothing points at the internal
-    /// resolver then, so there is nothing to carve back out.
+    /// Installs the rules the current mode calls for — and removes this app's rules when it
+    /// calls for none, rather than returning early. "Nothing to install" and "nothing should be
+    /// installed" are the same state, and only one of them is reached by doing nothing: an
+    /// earlier Cleanup that failed, or a list emptied under a live connection, both leave rules
+    /// behind that would otherwise survive the whole next session.
     /// </summary>
     private async Task ApplySplitDnsAsync(VpnConfig config)
     {
-        if (config.SkipDnsModification) return;
-        await Task.Run(() => _splitDns.Apply(config.SplitDnsPublicNamespaces, config.SplitDnsPublicServers));
+        var plan = await BuildSplitDnsPlanAsync(config);
+        if (plan is null) await Task.Run(_splitDns.Cleanup);
+        else await Task.Run(() => _splitDns.Apply(plan.Value.Namespaces, plan.Value.Servers));
+    }
+
+    private readonly record struct SplitDnsRules(
+        IReadOnlyList<string> Namespaces, IReadOnlyList<string> Servers);
+
+    /// <summary>
+    /// Which suffixes get an NRPT rule, and which resolvers those rules point at. Null when
+    /// the mode in effect installs none.
+    ///
+    /// The two DNS modes are mirror images of each other. Internal-DNS mode hands the whole
+    /// system to the tunnel's resolvers and redirects a list of public suffixes back out to
+    /// configured public ones; public-DNS mode leaves system DNS alone and redirects a list of
+    /// internal suffixes the other way, into the tunnel. Only the second one has no server list
+    /// to read: its resolvers are the ones the gateway pushed for this session, which only
+    /// openconnect ever learns.
+    /// </summary>
+    private async Task<SplitDnsRules?> BuildSplitDnsPlanAsync(VpnConfig config)
+    {
+        if (!config.SkipDnsModification)
+            return new SplitDnsRules(config.SplitDnsPublicNamespaces, config.SplitDnsPublicServers);
+
+        // Checked before asking for the resolvers, so a config with no internal suffixes never
+        // pays the wait for a report it has no use for.
+        if (config.SplitDnsInternalNamespaces.Count == 0) return null;
+
+        var pushed = await _openConnect.TunnelDnsServersAsync();
+        if (pushed.Count == 0)
+        {
+            AppLogger.Shared.Error(
+                "split-DNS: no usable resolvers were reported for this session, so the " +
+                "internal-DNS domains install no rules and keep resolving through public DNS");
+            return null;
+        }
+        return new SplitDnsRules(config.SplitDnsInternalNamespaces, pushed);
     }
 
     /// <summary>

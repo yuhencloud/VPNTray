@@ -103,7 +103,7 @@ public sealed class AppCoordinator
         // The installer terminates a running VPNTray to get at its files, and Task Manager and
         // crashes end it just as abruptly — none of which runs the exit path. Off the UI thread
         // because it shells out to powershell.
-        _ = Task.Run(_controller.RemoveStaleSplitDnsRules);
+        var staleRulesRemoved = Task.Run(_controller.RemoveStaleSplitDnsRules);
 
         bool configured = _store.Load()?.IsConfigured == true;
         if (!configured) _controller.MarkSetupIncomplete();
@@ -116,7 +116,11 @@ public sealed class AppCoordinator
         if (background && configured && _startup.IsConnectAtLoginEnabled())
         {
             AppLogger.Shared.Info("startup: connect-at-login is on, connecting");
-            _ = _controller.ConnectAsync();
+            // Sequenced, not raced: the stale-rule sweep removes rules by tag, and at logon its
+            // first powershell spawn can take as long as the handshake. Left unordered it can
+            // land after the connect installs its rules and delete them again, which looks
+            // exactly like the gateway having reported no resolvers.
+            _ = staleRulesRemoved.ContinueWith(_ => _controller.ConnectAsync(), TaskScheduler.Default);
         }
     }
 

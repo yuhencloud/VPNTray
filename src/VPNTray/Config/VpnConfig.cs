@@ -64,6 +64,23 @@ public class VpnConfig
     /// <summary>Resolvers for <see cref="SplitDnsPublicNamespaces"/>. Empty by default, for the same reason.</summary>
     public List<string> SplitDnsPublicServers { get; set; } = new();
 
+    /// <summary>
+    /// The mirror image of <see cref="SplitDnsPublicNamespaces"/>, for the other mode: DNS
+    /// suffixes sent to the tunnel's own resolvers via NRPT while
+    /// <see cref="SkipDnsModification"/> is on. Lets the default public-DNS mode keep answering
+    /// everything else, so internal names resolve without handing the whole system over to the
+    /// internal resolver and re-breaking the public names that made public DNS the default.
+    ///
+    /// There is no companion server list, on purpose. The resolvers are the ones the gateway
+    /// pushes at connect time — per session, and not something a user can be expected to know
+    /// or keep current. They arrive from the --no-dns vpnc-script via
+    /// <see cref="Core.IOpenConnectProcessRunning.TunnelDnsServersAsync"/>.
+    ///
+    /// Empty by default: which internal suffixes exist is a property of the deployment, and an
+    /// NRPT rule is machine-wide.
+    /// </summary>
+    public List<string> SplitDnsInternalNamespaces { get; set; } = new();
+
     public const int CurrentSchemaVersion = 3;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
@@ -87,6 +104,7 @@ public class VpnConfig
         SkipDnsModification = SkipDnsModification,
         SplitDnsPublicNamespaces = CleanList(SplitDnsPublicNamespaces),
         SplitDnsPublicServers = CleanList(SplitDnsPublicServers),
+        SplitDnsInternalNamespaces = CleanList(SplitDnsInternalNamespaces),
         SchemaVersion = SchemaVersion,
     };
 
@@ -94,8 +112,8 @@ public class VpnConfig
     /// True when nothing openconnect reads at spawn time differs — credentials, gateway, pin,
     /// the two native-tool paths, and the DNS mode (which picks the vpnc-script variant).
     ///
-    /// The split-DNS exception lists are deliberately excluded: they become NRPT rules applied
-    /// after the handshake, independent of the tunnel, so they can be swapped underneath a live
+    /// All three suffix lists are deliberately excluded: they become NRPT rules applied after
+    /// the handshake, independent of the tunnel, so they can be swapped underneath a live
     /// connection. That is worth distinguishing — rebuilding the tunnel means re-authenticating,
     /// and openconnect would have to do it with a TOTP from the same 30-second window the last
     /// login just consumed, which gateways with replay protection reject.

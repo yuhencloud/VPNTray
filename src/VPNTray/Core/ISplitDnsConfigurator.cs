@@ -1,8 +1,9 @@
 namespace VPNTray.Core;
 
 /// <summary>
-/// Installs and removes the NRPT rules that carve public domains back out of the
-/// tunnel's internal DNS. See <see cref="SplitDnsManager"/> for why they are needed.
+/// Installs and removes the NRPT rules that route a list of suffixes to resolvers of their own,
+/// whichever way the current DNS mode needs them to point. See <see cref="SplitDnsManager"/> for
+/// why they are needed.
 /// </summary>
 public interface ISplitDnsConfigurator
 {

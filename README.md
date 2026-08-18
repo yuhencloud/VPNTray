@@ -30,24 +30,34 @@ The native files VPNTray needs at runtime are **committed in `src/VPNTray/Resour
 | `openconnect.exe` + its `lib*.dll` / `zlib1.dll` set | OpenConnect **v8.10** (anyconnect/DTLS/ESP), from the [horar/openconnect](https://github.com/horar/openconnect) prebuilt MinGW64 build, SHA-512 verified. |
 | `wintun.dll` | Wintun **0.14.1** (amd64), official build from [wintun.net](https://www.wintun.net/). |
 | `vpnc-script-win.js` | The VPN-configuration script, version-matched to the openconnect build. |
-| `vpnc-script-win--no-dns.js` | The same script with its **DNS-configuration block disabled**. Used in the default DNS mode, *Send every name to public DNS*: the VPN never touches system DNS, so downloads and public hosts keep working out of the box. The trade-off is that internal names (`*.corp…`) do not resolve until you switch to internal DNS under Settings → DNS. |
+| `vpnc-script-win--no-dns.js` | The same script with its **DNS-configuration block disabled**. Used in the default DNS mode, *Send every name to public DNS*: the VPN never touches system DNS, so downloads and public hosts keep working out of the box. Internal names (`*.corp…`) do not resolve unless you list them as internal-DNS exceptions. This copy also reports the resolvers the gateway pushed back to VPNTray, which is what makes those exceptions possible. |
 
-### DNS and the split-DNS rules
+### DNS: two modes, and an exception list in each
 
-`vpnc-script-win.js` ignores the gateway's `CISCO_SPLIT_DNS` list: it pins the internal
-resolvers onto the tunnel adapter, whose metric beats Wi-Fi's, so *every* lookup goes to the
-internal DNS. On a split tunnel that breaks public names — the internal resolver answers them
-with in-cloud addresses (100.64.0.0/10) that the default route then sends out the physical NIC,
-where they black-hole.
+The two modes are mirror images, and each carries a list of suffixes that go the other way.
 
-VPNTray keeps the internal DNS (so `*.corp…` resolves) and can carve individual public suffixes
-back out with NRPT rules pointing at a public resolver, which is what AnyConnect does natively.
-The list lives under **Settings → DNS → Advanced — public-DNS exceptions** and **ships empty**:
-which names a given gateway's resolver gets wrong is a property of that deployment, and an NRPT
-rule is machine-wide, so a shipped default would redirect somebody's lookups to a third party
-for a problem they may not have.
+**Public DNS (the default).** The VPN does not touch system DNS; your normal resolver answers
+everything. Nothing breaks out of the box, but internal names do not resolve either — so
+**Settings → DNS → Advanced — internal-DNS exceptions** takes the suffixes that should go to
+the VPN's own resolvers (`.corp.example.com`, `intranet`, …). There is no resolver box to fill
+in: the gateway supplies its resolvers at connect time, and VPNTray points the listed suffixes
+at whatever it got. If the gateway pushes none, the list installs nothing and says so in the
+log; the tunnel is unaffected.
 
-Add a suffix only after confirming the breakage, by comparing the two answers:
+**Internal DNS.** `vpnc-script-win.js` ignores the gateway's `CISCO_SPLIT_DNS` list: it pins the
+internal resolvers onto the tunnel adapter, whose metric beats Wi-Fi's, so *every* lookup goes
+to the internal DNS. On a split tunnel that breaks public names — the internal resolver answers
+them with in-cloud addresses (100.64.0.0/10) that the default route then sends out the physical
+NIC, where they black-hole. So this mode carries the opposite list, **Advanced — public-DNS
+exceptions**, carving individual public suffixes back out to a resolver you name. That is what
+AnyConnect does natively.
+
+Both lists **ship empty**. Which names matter is a property of the deployment, and an NRPT rule
+is machine-wide, so a shipped default would rewrite somebody's resolution for a problem they may
+not have. Both can also be edited while connected: they are NRPT rules, not tunnel settings, so
+saving swaps them in place instead of forcing a reconnect.
+
+Before adding a *public-DNS* exception, confirm the breakage by comparing the two answers:
 
 ```powershell
 Resolve-DnsName name.example.com -Server <internal resolver>   # from the tunnel adapter

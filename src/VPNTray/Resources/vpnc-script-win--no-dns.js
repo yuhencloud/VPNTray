@@ -227,6 +227,23 @@ case "connect":
         }
         echo(INFO, "Configured " + dns.length + " DNS servers: " + dns.join(" "));
     }
+    // VPNTray addition. The block above is disabled in this variant, so nothing binds the
+    // gateway's resolvers anywhere and this script is the only thing that ever sees them.
+    // Write them out when VPNTray asks (it names the file in VPNTRAY_DNS_REPORT); it points
+    // the internal suffixes the user listed at them with an NRPT rule, which is the only way
+    // an internal name resolves while the tunnel is deliberately not touching system DNS.
+    if (env("VPNTRAY_DNS_REPORT") && env("INTERNAL_IP4_DNS")) {
+        try {
+            var reportFile = WScript.CreateObject("Scripting.FileSystemObject")
+                .CreateTextFile(env("VPNTRAY_DNS_REPORT"), true);
+            reportFile.WriteLine(env("INTERNAL_IP4_DNS"));
+            reportFile.Close();
+        } catch (e) {
+            // Never fatal: the tunnel itself is fine without it, only the internal-suffix
+            // rules are lost, and VPNTray says so in its own log when the file never appears.
+            echo(ERROR, "Could not write VPNTRAY_DNS_REPORT: " + (e.description || e.message || e));
+        }
+    }
     echo(INFO, "done.");
 
     // Add internal network routes

@@ -1,4 +1,4 @@
-<Window x:Class="VPNTray.UI.SettingsWindow"
+﻿<Window x:Class="VPNTray.UI.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="VPNTray" Width="380" SizeToContent="Height" MaxHeight="720"
@@ -104,7 +104,7 @@
 
                         <!-- Exceptions to mode 1, so they live under it and grey out with it. -->
                         <StackPanel Margin="24,0,0,0"
-                                    IsEnabled="{Binding IsChecked, ElementName=InternalDnsRadio}">
+                                    IsEnabled="{Binding IsChecked, ElementName=InternalDnsRadio, FallbackValue=False}">
                             <TextBlock Text="Advanced — public-DNS exceptions" Style="{StaticResource FieldLabel}"
                                        Margin="0,10,0,3"/>
                             <TextBlock Style="{StaticResource Body}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,2"
@@ -124,7 +124,22 @@
                         <RadioButton x:Name="PublicDnsRadio" GroupName="DnsMode" Margin="0,14,0,0"
                                      Content="Send every name to public DNS (default)"/>
                         <TextBlock Style="{StaticResource Body}" FontSize="11" TextWrapping="Wrap" Margin="24,3,0,0"
-                                   Text="The VPN does not touch DNS at all; your normal resolver keeps answering everything. Internal names such as *.corp return NXDOMAIN."/>
+                                   Text="The VPN does not touch DNS at all; your normal resolver keeps answering everything. Internal names such as *.corp return NXDOMAIN unless you list them below."/>
+
+                        <!-- The mirror of the block above: exceptions to mode 2, pointing the
+                             other way. No resolver box — the VPN reports its own at connect. -->
+                        <StackPanel Margin="24,0,0,0"
+                                    IsEnabled="{Binding IsChecked, ElementName=PublicDnsRadio, FallbackValue=False}">
+                            <TextBlock Text="Advanced — internal-DNS exceptions" Style="{StaticResource FieldLabel}"
+                                       Margin="0,10,0,3"/>
+                            <TextBlock Style="{StaticResource Body}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,2"
+                                       Text="Names listed here go to the VPN's own DNS while everything else stays on your normal resolver. Add the internal suffixes you actually need — there is nothing to configure them with, the VPN supplies its resolvers when it connects."/>
+
+                            <TextBlock Text="Domains" Style="{StaticResource FieldLabel}"/>
+                            <TextBox x:Name="InternalDomainsBox"/>
+                            <TextBlock Style="{StaticResource Body}" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"
+                                       Text="Comma separated, e.g. .corp.example.com, intranet — a leading dot also covers every subdomain."/>
+                        </StackPanel>
                     </StackPanel>
 
                     <!-- Startup -->

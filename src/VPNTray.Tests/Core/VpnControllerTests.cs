@@ -11,6 +11,17 @@ internal sealed class FakeOpenConnect : IOpenConnectProcessRunning
     public int StopCount;
     public string? LastPassword;
 
+    /// <summary>Stands in for what the vpnc-script reports; empty is the "none pushed" case.</summary>
+    public IReadOnlyList<string> TunnelDnsServers { get; set; } = Array.Empty<string>();
+
+    public int TunnelDnsQueries;
+
+    public Task<IReadOnlyList<string>> TunnelDnsServersAsync()
+    {
+        TunnelDnsQueries++;
+        return Task.FromResult(TunnelDnsServers);
+    }
+
     public void Start(VpnConfig config, string password) { StartCount++; LastPassword = password; Running = true; }
     public Task<OpenConnectHandshake> WaitForHandshakeAsync(TimeSpan timeout)
     {
@@ -168,9 +179,10 @@ public class VpnControllerTests
     }
 
     [Fact]
-    public async Task Connect_WhenTunnelDnsIsDisabled_InstallsNothing()
+    public async Task Connect_WhenTunnelDnsIsDisabled_AndNoInternalDomains_InstallsNothing()
     {
-        // Nothing points at the internal resolver, so there is nothing to carve back out.
+        // Nothing points at the internal resolver and nothing asks to, so there is no rule
+        // either mode could want.
         var dns = new FakeSplitDns();
         var cfg = Good();
         cfg.SkipDnsModification = true;
@@ -179,6 +191,90 @@ public class VpnControllerTests
         await c.ConnectAsync();
 
         Assert.Equal(0, dns.ApplyCount);
+    }
+
+    /// <summary>
+    /// The mirror of the internal-DNS case: in public-DNS mode the listed internal suffixes are
+    /// the ones redirected, and they go to the resolvers the gateway pushed — nothing the user
+    /// configured, because per-session resolvers are not knowable in advance.
+    /// </summary>
+    [Fact]
+    public async Task Connect_InPublicDnsMode_PointsTheInternalDomainsAtTheGatewaysResolvers()
+    {
+        var dns = new FakeSplitDns();
+        var oc = new FakeOpenConnect { TunnelDnsServers = new[] { "10.0.0.53", "10.0.0.54" } };
+        var cfg = Good();
+        cfg.SkipDnsModification = true;
+        cfg.SplitDnsInternalNamespaces = new List<string> { ".corp.example.com" };
+        var c = Build(oc, new FakeNetworkMonitor(), () => cfg, dns);
+
+        await c.ConnectAsync();
+
+        Assert.Equal(1, dns.ApplyCount);
+        Assert.Equal(new[] { ".corp.example.com" }, dns.LastNamespaces);
+        Assert.Equal(new[] { "10.0.0.53", "10.0.0.54" }, dns.LastServers);
+    }
+
+    /// <summary>
+    /// A rule with no resolver to name cannot be written, and writing a wrong one would send
+    /// internal names somewhere arbitrary. Log and leave them on public DNS instead.
+    /// </summary>
+    [Fact]
+    public async Task Connect_InPublicDnsMode_WhenNoResolversWereReported_InstallsNothing()
+    {
+        var dns = new FakeSplitDns();
+        var cfg = Good();
+        cfg.SkipDnsModification = true;
+        cfg.SplitDnsInternalNamespaces = new List<string> { ".corp.example.com" };
+        var c = Build(new FakeOpenConnect(), new FakeNetworkMonitor(), () => cfg, dns);
+
+        await c.ConnectAsync();
+
+        Assert.Equal(0, dns.ApplyCount);
+        Assert.Equal(VpnStatus.Connected, c.State.Status);   // the tunnel itself is unaffected
+    }
+
+    /// <summary>
+    /// Both lists are excluded from TunnelSettingsMatch, so adding an internal domain mid
+    /// session refreshes rather than reconnects — and that only works if the resolvers were
+    /// picked up at connect time, before there was any list to spend them on.
+    /// </summary>
+    [Fact]
+    public async Task RefreshSplitDns_InPublicDnsMode_InstallsDomainsAddedWhileConnected()
+    {
+        var dns = new FakeSplitDns();
+        var oc = new FakeOpenConnect { TunnelDnsServers = new[] { "10.0.0.53" } };
+        var cfg = Good();
+        cfg.SkipDnsModification = true;
+        var c = Build(oc, new FakeNetworkMonitor(), () => cfg, dns);
+        await c.ConnectAsync();
+        Assert.Equal(0, dns.ApplyCount);
+
+        cfg.SplitDnsInternalNamespaces = new List<string> { ".corp.example.com" };
+        await c.RefreshSplitDnsAsync();
+
+        Assert.Equal(1, dns.ApplyCount);
+        Assert.Equal(new[] { ".corp.example.com" }, dns.LastNamespaces);
+        Assert.Equal(new[] { "10.0.0.53" }, dns.LastServers);
+        Assert.Equal(VpnStatus.Connected, c.State.Status);
+    }
+
+    [Fact]
+    public async Task RefreshSplitDns_InPublicDnsMode_WhenTheDomainsAreCleared_RemovesTheRules()
+    {
+        var dns = new FakeSplitDns();
+        var oc = new FakeOpenConnect { TunnelDnsServers = new[] { "10.0.0.53" } };
+        var cfg = Good();
+        cfg.SkipDnsModification = true;
+        cfg.SplitDnsInternalNamespaces = new List<string> { ".corp.example.com" };
+        var c = Build(oc, new FakeNetworkMonitor(), () => cfg, dns);
+        await c.ConnectAsync();
+        var cleanupsAfterConnect = dns.CleanupCount;
+
+        cfg.SplitDnsInternalNamespaces = new List<string>();
+        await c.RefreshSplitDnsAsync();
+
+        Assert.Equal(cleanupsAfterConnect + 1, dns.CleanupCount);
     }
 
     [Fact]
@@ -244,12 +340,15 @@ public class VpnControllerTests
         var dns = new FakeSplitDns();
         var c = Build(new FakeOpenConnect(), new FakeNetworkMonitor(), () => Good(), dns);
         await c.ConnectAsync();
+        // Connect cleans up too — public-DNS mode with no internal domains installs no rules,
+        // and "install none" is implemented as "remove whatever is there". Count the delta.
+        var cleanupsAfterConnect = dns.CleanupCount;
 
         c.StopForShutdown();
         c.StopForShutdown();
         c.StopForShutdown();
 
-        Assert.Equal(1, dns.CleanupCount);
+        Assert.Equal(cleanupsAfterConnect + 1, dns.CleanupCount);
     }
 
     /// <summary>
@@ -309,13 +408,15 @@ public class VpnControllerTests
     {
         var dns = new FakeSplitDns();
         var cfg = Good();
+        cfg.SkipDnsModification = false;   // connect in the mode that installs rules
         var c = Build(new FakeOpenConnect(), new FakeNetworkMonitor(), () => cfg, dns);
         await c.ConnectAsync();
+        var cleanupsAfterConnect = dns.CleanupCount;
         cfg.SkipDnsModification = true;
 
         await c.RefreshSplitDnsAsync();
 
-        Assert.Equal(1, dns.CleanupCount);
+        Assert.Equal(cleanupsAfterConnect + 1, dns.CleanupCount);
     }
 
     /// <summary>

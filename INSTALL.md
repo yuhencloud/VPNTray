@@ -21,7 +21,7 @@ VPNTray 运行时需要的原生文件**已提交在 `src/VPNTray/Resources/`**�
 | `openconnect.exe` + 它的 `lib*.dll` / `zlib1.dll` 一套依赖 | OpenConnect **v8.10**（anyconnect/DTLS/ESP），来自 [horar/openconnect](https://github.com/horar/openconnect) 预编译 MinGW64 构建，已校验 SHA-512。 |
 | `wintun.dll` | Wintun **0.14.1**（amd64），[wintun.net](https://www.wintun.net/) 官方构建。 |
 | `vpnc-script-win.js` | VPN 配置脚本，与 openconnect 构建版本匹配。 |
-| `vpnc-script-win--no-dns.js` | 同一脚本，但**禁用了 DNS 配置那一段**。默认 DNS 模式（Send every name to public DNS）用的就是它：VPN 完全不碰系统 DNS，下载和公网域名开箱即用。代价是内网域名（`*.corp…`）解析不了 —— 需要的话去 Settings → DNS 切到内网模式。 |
+| `vpnc-script-win--no-dns.js` | 同一脚本，但**禁用了 DNS 配置那一段**。默认 DNS 模式（Send every name to public DNS）用的就是它：VPN 完全不碰系统 DNS，下载和公网域名开箱即用。内网域名（`*.corp…`）默认解析不了，要用就把它们填进内网 DNS 例外表。这个副本还会把网关下发的 DNS 服务器回报给 VPNTray——例外表能工作就靠它。 |
 
 > 💡 所有 `lib*.dll` / `zlib1.dll` 是 `openconnect.exe` 的运行时依赖，必须和它放在同一个 `Resources/` 文件夹里，否则 openconnect 起不来。详见 [`src/VPNTray/Resources/README.md`](src/VPNTray/Resources/README.md)（含来源、版本、许可证，以及怎么换更新的 openconnect）。
 
@@ -101,7 +101,7 @@ VPN 管理员一般给你一张 `otpauth://` QR 码图片。TOTP 密钥输入框
 - **开机自启**：通过注册一个**以最高权限运行的计划任务（Scheduled Task）**实现，登录时静默、已提权地启动 app（**不弹 UAC**）。不想要的话 Settings → Startup 里关掉 `Launch at login`（改动立即生效，不用点 Save）。该计划任务带 `--background` 参数，是**唯一**只出托盘图标不开窗的启动方式；安装器的 `Launch VPNTray`、开始菜单、直接双击 exe 都会开窗 —— 用户主动启动却只看到一个托盘图标，跟没启动起来没区别。其下还有一个 **Connect automatically** 子开关（默认关）：勾上后，开机自启起来时直接拨通 VPN；手动打开 app 永远不会自动连。
 - **断网自动断开**：连接中如果网络断了（切网、断网），会主动断开 VPN 避免卡死。
 - **联网自动重连**：如果之前是你**主动**连的，网络恢复后会自动重连；之前主动 Disconnect 过、或上次是连接失败，则**不会**自动重连（避免对着错误配置死循环重试）。
-- **DNS 双模式 + split-DNS 补偿**：**默认公网 DNS**（VPN 不碰系统 DNS）—— 实测发现内网解析器会把一些公网主机（含下载站点）解析成隧道不路由的云内网地址，内网 DNS 做默认会让下载开箱即坏，比 `*.corp…` 暂时解析不了更糟。需要内网域名时，Settings → DNS 切到内网模式。切过去之后另有一个坑：`vpnc-script-win.js` 整段忽略服务端下发的 `CISCO_SPLIT_DNS`，把内网 DNS 硬绑到隧道网卡上（metric 比 Wi-Fi 低），结果连公网域名也去问内网 DNS——内网 DNS 会把它们解析成云内网地址（100.64.0.0/10），数据包却按默认路由从物理网卡发出去，直接黑洞。所以 VPNTray 支持给受影响的公网后缀加 NRPT 规则强制走公网 DNS（AnyConnect 原生就是这么做的）。列表在 Settings → DNS → **Advanced — public-DNS exceptions**，**默认为空** —— 哪些域名会被某个网关的内网解析器解析错，是那个部署自己的特性，而 NRPT 规则是机器级的，预置一个猜测等于让每个装机的人把解析请求交给第三方去解决一个他可能没有的问题。<br><br>要加之前先确认故障真的存在，对比两个解析器的答案：`Resolve-DnsName 域名 -Server <隧道网卡上的内网解析器>` 和 `Resolve-DnsName 域名 -Server 8.8.8.8`。内网答案落在隧道不路由的网段（比如 `100.64.0.0/10`）才是需要加例外的信号；两边答案一致就不用加。<br><br>规则打了 `vpntray_split_dns` 标记，断开 / 退出 / openconnect 意外死掉时都会清理，可用 `Get-DnsClientNrptRule` 查看。
+- **DNS 双模式 + 两张互为镜像的例外表**：两个模式各带一张「反着走」的域名表。<br><br>**公网 DNS（默认）**：VPN 不碰系统 DNS，全部交给你原本的解析器 —— 实测发现内网解析器会把一些公网主机（含下载站点）解析成隧道不路由的云内网地址，内网 DNS 做默认会让下载开箱即坏。代价是内网域名默认解析不了，所以这个模式下有 Settings → DNS → **Advanced — internal-DNS exceptions**：把需要走内网的后缀（`.corp.example.com`、`intranet` 之类）填进去，它们就单独走 VPN 自己的 DNS，其余照旧。**不需要填内网 DNS 地址** —— 那是网关连接时下发的，VPNTray 直接拿来用；网关一个都没下发时，这张表不装任何规则并在日志里说明，隧道本身不受影响。<br><br>**内网 DNS**：`vpnc-script-win.js` 整段忽略服务端下发的 `CISCO_SPLIT_DNS`，把内网 DNS 硬绑到隧道网卡上（metric 比 Wi-Fi 低），结果连公网域名也去问内网 DNS——内网 DNS 会把它们解析成云内网地址（100.64.0.0/10），数据包却按默认路由从物理网卡发出去，直接黑洞。所以这个模式带的是反向的那张表：Settings → DNS → **Advanced — public-DNS exceptions**，给受影响的公网后缀加 NRPT 规则强制走你指定的公网解析器（AnyConnect 原生就是这么做的）。<br><br>两张表**默认都为空** —— 哪些域名有问题是那个部署自己的特性，而 NRPT 规则是机器级的，预置一个猜测等于替每个装机的人改掉他可能没有的问题的解析路径。两张表都可以在**已连接状态下改**：它们是 NRPT 规则不是隧道参数，保存时就地换掉，不会重连。<br><br>加**公网例外**之前先确认故障真的存在，对比两个解析器的答案：`Resolve-DnsName 域名 -Server <隧道网卡上的内网解析器>` 和 `Resolve-DnsName 域名 -Server 8.8.8.8`。内网答案落在隧道不路由的网段（比如 `100.64.0.0/10`）才是需要加例外的信号；两边答案一致就不用加。<br><br>规则打了 `vpntray_split_dns` 标记，断开 / 退出 / openconnect 意外死掉时都会清理，可用 `Get-DnsClientNrptRule` 查看。
 
 ## 常见问题
 

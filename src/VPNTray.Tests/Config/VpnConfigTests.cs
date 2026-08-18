@@ -90,6 +90,9 @@ public class VpnConfigTests
         // the gateway, and a shipped suffix installs a machine-wide rule nobody asked for.
         Assert.Empty(c.SplitDnsPublicNamespaces);
         Assert.Empty(c.SplitDnsPublicServers);
+        // Same reasoning in the other direction: which internal suffixes exist is the
+        // deployment's business, and each one shipped would be a machine-wide NRPT rule.
+        Assert.Empty(c.SplitDnsInternalNamespaces);
     }
 
     /// <summary>
@@ -116,11 +119,13 @@ public class VpnConfigTests
         var c = new VpnConfig
         {
             SplitDnsPublicNamespaces = new List<string> { "  .a.com ", "", "\u200B", ".b\u200B.com" },
+            SplitDnsInternalNamespaces = new List<string> { " .corp.a.com ", "\u200B" },
         };
 
         var s = c.Sanitized();
 
         Assert.Equal(new[] { ".a.com", ".b.com" }, s.SplitDnsPublicNamespaces);
+        Assert.Equal(new[] { ".corp.a.com" }, s.SplitDnsInternalNamespaces);
     }
 
     [Fact]
@@ -170,6 +175,10 @@ public class VpnConfigTests
         var after = FullyConfigured();
         after.SplitDnsPublicNamespaces = new List<string> { ".example.com", ".other.net" };
         after.SplitDnsPublicServers = new List<string> { "9.9.9.9" };
+        // Included deliberately: adding an internal suffix mid-session must refresh the NRPT
+        // rules, not rebuild the tunnel — a reconnect would need a TOTP from a window the
+        // previous login just spent.
+        after.SplitDnsInternalNamespaces = new List<string> { ".corp.example.com" };
 
         Assert.True(before.TunnelSettingsMatch(after));
     }

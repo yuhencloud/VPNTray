@@ -12,7 +12,7 @@ items in `VPNTray.csproj`.
 | `openconnect.exe` + the `lib*.dll` / `iconv.dll` / `zlib1.dll` set | Official OpenConnect MinGW64/GnuTLS Windows build (the `openconnect-installer-MinGW64-GnuTLS` payload, installed via the Chocolatey `openconnect` package) | OpenConnect **v9.12** (GnuTLS 3.8.6; anyconnect/DTLS/ESP) | LGPL 2.1 |
 | `wintun.dll` | The Wintun driver bundled inside that same OpenConnect v9.12 build (Wintun 0.14, WireGuard LLC) | 0.14 | Prebuilt redistributable |
 | `vpnc-script-win.js` | The script bundled inside the v9.12 build | matches v9.12 | GPL/heuristic script |
-| `vpnc-script-win--no-dns.js` | a copy of `vpnc-script-win.js` with the DNS-add block disabled (its `if (env("INTERNAL_IP4_DNS"))` guard changed to `if (false)`) — used when **Skip DNS modification** is on (the default) | — | — |
+| `vpnc-script-win--no-dns.js` | a copy of `vpnc-script-win.js` carrying two VPNTray changes — the DNS-add block disabled (its `if (env("INTERNAL_IP4_DNS"))` guard changed to `if (false)`), and a block after it that writes `INTERNAL_IP4_DNS` to the file named in `VPNTRAY_DNS_REPORT` when that variable is set. Used when **Skip DNS modification** is on (the default). The report exists because nothing else ever sees the gateway's resolvers in this mode, and the internal-DNS domain list needs them; see `Core/OpenConnectProcess.cs`. | — | — |
 
 > ⚠️ Wintun support in openconnect is marked **experimental** (openconnect prints
 > a warning on connect). It works in practice; if you hit instability, the

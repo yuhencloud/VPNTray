@@ -144,6 +144,7 @@ public partial class SettingsWindow : Window
         PublicDnsRadio.IsChecked = c.SkipDnsModification;
         BypassDomainsBox.Text = string.Join(", ", c.SplitDnsPublicNamespaces);
         BypassServersBox.Text = string.Join(", ", c.SplitDnsPublicServers);
+        InternalDomainsBox.Text = string.Join(", ", c.SplitDnsInternalNamespaces);
         UpdateDnsSummary();
         // Wires its own handlers, so it must not also be wired in WireChangeTracking.
         SyncLaunchAtLogin();
@@ -163,16 +164,12 @@ public partial class SettingsWindow : Window
     /// </summary>
     private void UpdateDnsSummary()
     {
-        if (InternalDnsRadio.IsChecked != true)
-        {
-            DnsSummary.Text = "public DNS";
-            return;
-        }
-
-        int domains = ParseList(BypassDomainsBox.Text).Count;
-        DnsSummary.Text = domains == 0
-            ? "internal DNS"
-            : $"internal DNS, {domains} {(domains == 1 ? "exception" : "exceptions")}";
+        bool internalMode = InternalDnsRadio.IsChecked == true;
+        int exceptions = ParseList(internalMode ? BypassDomainsBox.Text : InternalDomainsBox.Text).Count;
+        string mode = internalMode ? "internal DNS" : "public DNS";
+        DnsSummary.Text = exceptions == 0
+            ? mode
+            : $"{mode}, {exceptions} {(exceptions == 1 ? "exception" : "exceptions")}";
     }
 
     private void WireChangeTracking()
@@ -187,6 +184,7 @@ public partial class SettingsWindow : Window
         PublicDnsRadio.Checked += (_, _) => { Enable(); UpdateDnsSummary(); };
         BypassDomainsBox.TextChanged += (_, _) => { Enable(); UpdateDnsSummary(); };
         BypassServersBox.TextChanged += (_, _) => Enable();
+        InternalDomainsBox.TextChanged += (_, _) => { Enable(); UpdateDnsSummary(); };
     }
 
     /// <summary>Accepts comma, semicolon, or whitespace between entries.</summary>
@@ -339,11 +337,17 @@ public partial class SettingsWindow : Window
     {
         var bypassDomains = ParseList(BypassDomainsBox.Text);
         var bypassServers = ParseList(BypassServersBox.Text);
+        var internalDomains = ParseList(InternalDomainsBox.Text);
 
-        // Only when the exceptions are live. In public-DNS mode the fields are greyed out,
-        // and refusing a save over a field the user cannot edit is a dead end; the entries
-        // are still stored, so they get validated on the save that turns internal DNS back on.
-        if (InternalDnsRadio.IsChecked == true && !ExceptionsAreValid(bypassDomains, bypassServers)) return;
+        // Each mode's exceptions are validated only while that mode is selected. The other
+        // mode's fields are greyed out, and refusing a save over a field the user cannot edit
+        // is a dead end; the entries are still stored, so they get validated on the save that
+        // switches back.
+        if (InternalDnsRadio.IsChecked == true)
+        {
+            if (!PublicExceptionsAreValid(bypassDomains, bypassServers)) return;
+        }
+        else if (!InternalExceptionsAreValid(internalDomains)) return;
 
         // Edit the credential and DNS fields; preserve the advanced ones
         // (openconnect / vpnc-script paths) from the saved config.
@@ -360,6 +364,7 @@ public partial class SettingsWindow : Window
             SkipDnsModification = InternalDnsRadio.IsChecked != true,
             SplitDnsPublicNamespaces = bypassDomains,
             SplitDnsPublicServers = bypassServers,
+            SplitDnsInternalNamespaces = internalDomains,
             // SchemaVersion intentionally left at the default: saving rewrites the file in
             // the current schema, so a migrated v1 config must not keep claiming v1.
         }.Sanitized();
@@ -378,6 +383,7 @@ public partial class SettingsWindow : Window
         // leaving the boxes showing something the config no longer contains.
         BypassDomainsBox.Text = string.Join(", ", c.SplitDnsPublicNamespaces);
         BypassServersBox.Text = string.Join(", ", c.SplitDnsPublicServers);
+        InternalDomainsBox.Text = string.Join(", ", c.SplitDnsInternalNamespaces);
         UpdateDnsSummary();
         // Compared sanitized-to-sanitized, or path resolution alone would read as a change and
         // force a needless reconnect.
@@ -393,13 +399,9 @@ public partial class SettingsWindow : Window
     /// Reports the first problem with the public-DNS exceptions, if any. False means the save
     /// was refused and the user has been told why.
     /// </summary>
-    private bool ExceptionsAreValid(List<string> domains, List<string> servers)
+    private bool PublicExceptionsAreValid(List<string> domains, List<string> servers)
     {
-        var malformed = domains.Where(d => !SplitDnsManager.IsValidNamespace(d)).ToList();
-        if (malformed.Count > 0)
-            return RejectDnsSetting(
-                "These are not valid domain suffixes:\n\n" + string.Join("\n", malformed) +
-                "\n\nUse entries like .example.com or api.example.com.", "Exception domains");
+        if (!DomainsAreValid(domains, "Exception domains")) return false;
 
         var badServers = servers.Where(s => !SplitDnsManager.IsValidServer(s)).ToList();
         if (badServers.Count > 0)
@@ -415,6 +417,48 @@ public partial class SettingsWindow : Window
                 "Fill in \"Resolved through\" (e.g. 8.8.8.8), or clear the domain list.",
                 "Exception resolvers");
 
+        return true;
+    }
+
+    /// <summary>
+    /// The public-DNS-mode counterpart. There is no resolver list to check: those come from the
+    /// gateway at connect time, which is also why an empty list here is not an error — it just
+    /// means nothing is redirected into the tunnel.
+    /// </summary>
+    private bool InternalExceptionsAreValid(List<string> domains)
+    {
+        if (!DomainsAreValid(domains, "Internal domains")) return false;
+
+        // Asked, not refused: ".internal" and ".corp" have the same shape as ".com" and are
+        // real private TLDs, so this cannot be a validation rule. It is worth one question
+        // because the rule it writes is machine-wide and the typo is silent otherwise.
+        var wholeTlds = domains.Where(SplitDnsManager.CoversAnEntireTld).ToList();
+        if (wholeTlds.Count > 0)
+        {
+            if (DnsPanel.Visibility != Visibility.Visible)
+            {
+                DnsPanel.Visibility = Visibility.Visible;
+                DnsChevron.Text = "▾";
+            }
+            var answer = MessageBox.Show(this,
+                "These cover a whole top-level domain:\n\n" + string.Join("\n", wholeTlds) +
+                "\n\nEvery name under them will resolve through the VPN, for every account on " +
+                "this machine. That is right for a private TLD such as .internal, and wrong for " +
+                "a public one such as .com.\n\nSave anyway?",
+                "Internal domains", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (answer != MessageBoxResult.Yes) return false;
+        }
+
+        return true;
+    }
+
+    private bool DomainsAreValid(List<string> domains, string title)
+    {
+        var malformed = domains.Where(d => !SplitDnsManager.IsValidNamespace(d)).ToList();
+        if (malformed.Count > 0)
+            return RejectDnsSetting(
+                "These are not valid domain suffixes:\n\n" + string.Join("\n", malformed) +
+                "\n\nUse entries like .example.com or api.example.com.", title);
         return true;
     }
 

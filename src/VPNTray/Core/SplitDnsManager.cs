@@ -5,18 +5,20 @@ using VPNTray.Util;
 namespace VPNTray.Core;
 
 /// <summary>
-/// Split-DNS compensation for openconnect on Windows.
+/// Split-DNS compensation for openconnect on Windows: an NRPT (Name Resolution Policy Table)
+/// rule per suffix, sending that suffix to resolvers of its own while everything else follows
+/// whatever the system would do anyway. AnyConnect works out of the box because it implements
+/// this natively. This class does not care which direction it is pointing — see
+/// <see cref="VpnController"/> for how each DNS mode fills in the two lists.
 ///
-/// vpnc-script-win.js ignores the gateway's CISCO_SPLIT_DNS list entirely: it pins the
-/// internal resolvers onto the tunnel adapter and, because that adapter's metric is lower
-/// than Wi-Fi's, every name in the system ends up being asked of the internal DNS. On a
-/// split tunnel that is actively wrong for public names — the internal resolver answers
+/// It exists because vpnc-script-win.js ignores the gateway's CISCO_SPLIT_DNS list entirely:
+/// it pins the internal resolvers onto the tunnel adapter and, because that adapter's metric
+/// is lower than Wi-Fi's, every name in the system ends up being asked of the internal DNS.
+/// On a split tunnel that is actively wrong for public names — the internal resolver answers
 /// them with in-cloud addresses (100.64.0.0/10, only routable inside the VPC), the default
-/// route sends those packets out the physical NIC, and they black-hole.
-///
-/// The fix is an NRPT (Name Resolution Policy Table) rule per affected suffix, pointing it
-/// at a public resolver. The tunnel's DNS configuration is left alone, so internal names
-/// keep resolving. AnyConnect works out of the box because it implements this natively.
+/// route sends those packets out the physical NIC, and they black-hole. The --no-dns variant
+/// of the script avoids that by leaving system DNS alone, which then needs rules in the other
+/// direction for the internal names it no longer resolves.
 ///
 /// Every rule is stamped with <see cref="RuleTag"/> so cleanup only ever removes rules this
 /// app created — NRPT is machine-wide and may well hold rules put there by someone else.
@@ -110,11 +112,28 @@ public sealed class SplitDnsManager : ISplitDnsConfigurator
     public static bool IsValidNamespace(string? value)
         => !string.IsNullOrWhiteSpace(value) && value.Length <= 253 && NamespacePattern.IsMatch(value);
 
+    /// <summary>
+    /// True for a suffix that captures a whole top-level domain: a leading dot and one label,
+    /// like ".com". Syntactically perfect, and as an internal-DNS entry it would route every
+    /// name under that TLD into the tunnel for every account on the machine.
+    ///
+    /// Not an error — ".internal", ".corp" and ".lan" have exactly this shape and are the
+    /// private TLDs people legitimately run — which is why this reports rather than rejects.
+    /// A dotless entry ("intranet") is an exact name, not a wildcard, so it does not count.
+    /// </summary>
+    public static bool CoversAnEntireTld(string? value)
+        => !string.IsNullOrWhiteSpace(value) && value.StartsWith('.') && !value.TrimStart('.').Contains('.');
+
     public static bool IsValidServer(string? value)
         => !string.IsNullOrWhiteSpace(value) && IPAddress.TryParse(value, out _);
 
+    /// <remarks>
+    /// Anchored with \z rather than $, which in .NET also matches before a trailing newline —
+    /// this predicate is the last gate before a powershell command line, so it must not depend
+    /// on the caller having stripped control characters first.
+    /// </remarks>
     private static readonly Regex NamespacePattern = new(
-        @"^\.?[A-Za-z0-9]([A-Za-z0-9\-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9\-]*[A-Za-z0-9])?)*$",
+        @"^\.?[A-Za-z0-9]([A-Za-z0-9\-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9\-]*[A-Za-z0-9])?)*\z",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     private ProcessResult RunPowerShell(string command)

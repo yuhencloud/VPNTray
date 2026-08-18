@@ -51,11 +51,9 @@ public class ConfigStoreTests : IDisposable
     }
 
     [Fact]
-    public void Load_MigratesSchemaV2File_ByTurningOffSkipDns()
+    public void Load_KeepsAnOldFilesDnsChoice_AndOnlyStampsTheVersion()
     {
-        // v2 defaulted SkipDnsModification on, which left the tunnel adapter without the
-        // gateway's resolvers — no internal name resolved. The key is written out
-        // explicitly, so only a load-time migration reaches configs already on disk.
+        // An explicit value on disk is the user's setting; upgrades must not overrule it.
         var store = new ConfigStore(_dir);
         Directory.CreateDirectory(_dir);
         File.WriteAllText(store.FilePath, """
@@ -65,7 +63,7 @@ public class ConfigStoreTests : IDisposable
               "TotpSecret": "GEZDGNBVGY3TQOJQ",
               "Gateway": "vpn.example.com",
               "ServerCertPin": "pin-sha256:AAAA",
-              "SkipDnsModification": true,
+              "SkipDnsModification": false,
               "SchemaVersion": 2
             }
             """);
@@ -74,8 +72,8 @@ public class ConfigStoreTests : IDisposable
 
         Assert.False(migrated.SkipDnsModification);
         Assert.Equal(VpnConfig.CurrentSchemaVersion, migrated.SchemaVersion);
-        // Migration turns the internal resolver back on; it must not also invent exceptions to
-        // it, which would be a machine-wide DNS rule appearing out of an upgrade.
+        // And it must not invent split-DNS exceptions either — that would be a machine-wide
+        // DNS rule appearing out of an upgrade.
         Assert.Empty(migrated.SplitDnsPublicNamespaces);
         Assert.Empty(migrated.SplitDnsPublicServers);
     }

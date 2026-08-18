@@ -100,7 +100,7 @@
                         <RadioButton x:Name="InternalDnsRadio" GroupName="DnsMode" Margin="0,10,0,0"
                                      Content="Send every name to the VPN's internal DNS"/>
                         <TextBlock Style="{StaticResource Body}" FontSize="11" TextWrapping="Wrap" Margin="24,3,0,0"
-                                   Text="Internal names such as *.corp resolve. Recommended — this is what the gateway expects."/>
+                                   Text="Internal names such as *.corp resolve. Turn this on if you need them; some public hosts may then need the exceptions below."/>
 
                         <!-- Exceptions to mode 1, so they live under it and grey out with it. -->
                         <StackPanel Margin="24,0,0,0"
@@ -122,7 +122,7 @@
                         </StackPanel>
 
                         <RadioButton x:Name="PublicDnsRadio" GroupName="DnsMode" Margin="0,14,0,0"
-                                     Content="Send every name to public DNS"/>
+                                     Content="Send every name to public DNS (default)"/>
                         <TextBlock Style="{StaticResource Body}" FontSize="11" TextWrapping="Wrap" Margin="24,3,0,0"
                                    Text="The VPN does not touch DNS at all; your normal resolver keeps answering everything. Internal names such as *.corp return NXDOMAIN."/>
                     </StackPanel>

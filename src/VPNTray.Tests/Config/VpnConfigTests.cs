@@ -77,36 +77,37 @@ public class VpnConfigTests
     }
 
     [Fact]
-    public void Defaults_UseBundledPaths_AndLeaveTunnelDnsInPlace()
+    public void Defaults_UseBundledPaths_AndLeaveSystemDnsAlone()
     {
         var c = new VpnConfig();
         Assert.EndsWith("openconnect.exe", c.OpenconnectPath);
-        // On would mean no internal name resolves at all.
-        Assert.False(c.SkipDnsModification);
+        // Public-DNS mode by default. The fleet's internal resolver answers several public
+        // names with unroutable in-cloud addresses, which breaks downloads out of the box;
+        // not resolving *.corp names is the lesser default evil, and switching to internal
+        // DNS is one radio button. See the property's own doc comment.
+        Assert.True(c.SkipDnsModification);
         // Empty, not a guess: which public names an internal resolver breaks is specific to
         // the gateway, and a shipped suffix installs a machine-wide rule nobody asked for.
         Assert.Empty(c.SplitDnsPublicNamespaces);
         Assert.Empty(c.SplitDnsPublicServers);
     }
 
-    [Fact]
-    public void Migrate_TurnsOffSkipDns_OnConfigsWrittenBeforeV3()
+    /// <summary>
+    /// Migration stamps the version and nothing else. It used to force SkipDnsModification off
+    /// for pre-v3 files; with the default back to public DNS, an explicit value on disk — either
+    /// way, whoever wrote it — is the user's setting, not something to overrule on load.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Migrate_StampsTheVersion_AndPreservesTheDnsChoice(bool skipDns)
     {
-        // v2 wrote the key out explicitly, so a changed default never reaches those files.
-        var c = new VpnConfig { SkipDnsModification = true, SchemaVersion = 2 };
+        var c = new VpnConfig { SkipDnsModification = skipDns, SchemaVersion = 2 };
 
         c.Migrate();
 
-        Assert.False(c.SkipDnsModification);
+        Assert.Equal(skipDns, c.SkipDnsModification);
         Assert.Equal(VpnConfig.CurrentSchemaVersion, c.SchemaVersion);
-    }
-
-    [Fact]
-    public void Migrate_LeavesACurrentConfigAlone()
-    {
-        var c = new VpnConfig { SkipDnsModification = true };  // deliberate, at current schema
-        c.Migrate();
-        Assert.True(c.SkipDnsModification);
     }
 
     [Fact]

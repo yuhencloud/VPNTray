@@ -37,12 +37,16 @@ public class VpnConfig
 
     /// <summary>
     /// Run openconnect against the --no-dns vpnc-script variant, leaving the tunnel adapter
-    /// without the gateway's resolvers. Off by default: with it on, no internal name resolves
-    /// at all (*.corp.* returns NXDOMAIN from the public resolver). The public-domain
-    /// breakage it used to work around is handled by
-    /// <see cref="SplitDnsPublicNamespaces"/> instead, which is surgical rather than total.
+    /// without the gateway's resolvers — every lookup keeps using the system's normal (public)
+    /// DNS. ON by default, a deliberate trade-off measured in the field: the fleet's internal
+    /// resolver answers several public names (download hosts among them) with in-cloud
+    /// addresses the tunnel does not route, so internal-DNS-by-default broke downloads out of
+    /// the box, which is worse than *.corp names not resolving until the user flips one radio
+    /// button in Settings → DNS. Whoever needs internal names switches modes and, for the
+    /// hosts the internal resolver answers wrongly, adds
+    /// <see cref="SplitDnsPublicNamespaces"/> exceptions.
     /// </summary>
-    public bool SkipDnsModification { get; set; }
+    public bool SkipDnsModification { get; set; } = true;
 
     /// <summary>
     /// DNS suffixes forced onto <see cref="SplitDnsPublicServers"/> via NRPT while connected.
@@ -110,14 +114,15 @@ public class VpnConfig
     /// Bring a just-deserialized config up to <see cref="CurrentSchemaVersion"/>. Mutates,
     /// so call it only on an instance nobody else holds — i.e. straight out of the parser.
     ///
-    /// v2 shipped with <see cref="SkipDnsModification"/> defaulted on, which meant no
-    /// internal name ever resolved. Because the key is written out explicitly, a new default
-    /// alone would not reach configs already on disk; they have to be flipped on load.
+    /// Stamps the version and nothing else. An earlier revision forced
+    /// <see cref="SkipDnsModification"/> off for pre-v3 files, back when the default flipped to
+    /// internal DNS; the default has since flipped back (see the property), and an explicit
+    /// value on disk — whichever way it points — is the user's setting, not something an
+    /// upgrade gets to overrule.
     /// </summary>
     public void Migrate()
     {
         if (SchemaVersion >= CurrentSchemaVersion) return;
-        SkipDnsModification = false;
         SchemaVersion = CurrentSchemaVersion;
     }
 

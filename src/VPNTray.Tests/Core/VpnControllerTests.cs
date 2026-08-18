@@ -155,6 +155,7 @@ public class VpnControllerTests
     {
         var dns = new FakeSplitDns();
         var cfg = Good();
+        cfg.SkipDnsModification = false;   // internal-DNS mode: the only mode that installs rules
         cfg.SplitDnsPublicNamespaces = new List<string> { ".example.com" };
         cfg.SplitDnsPublicServers = new List<string> { "8.8.8.8" };
         var c = Build(new FakeOpenConnect(), new FakeNetworkMonitor(), () => cfg, dns);
@@ -273,6 +274,7 @@ public class VpnControllerTests
         var dns = new FakeSplitDns();
         var oc = new FakeOpenConnect();
         var cfg = Good();
+        cfg.SkipDnsModification = false;   // internal-DNS mode: the only mode that installs rules
         var c = Build(oc, new FakeNetworkMonitor(), () => cfg, dns);
         await c.ConnectAsync();
         var stopsAfterConnect = oc.StopCount;

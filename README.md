@@ -30,7 +30,7 @@ The native files VPNTray needs at runtime are **committed in `src/VPNTray/Resour
 | `openconnect.exe` + its `lib*.dll` / `zlib1.dll` set | OpenConnect **v8.10** (anyconnect/DTLS/ESP), from the [horar/openconnect](https://github.com/horar/openconnect) prebuilt MinGW64 build, SHA-512 verified. |
 | `wintun.dll` | Wintun **0.14.1** (amd64), official build from [wintun.net](https://www.wintun.net/). |
 | `vpnc-script-win.js` | The VPN-configuration script, version-matched to the openconnect build. |
-| `vpnc-script-win--no-dns.js` | The same script with its **DNS-configuration block disabled**. Only used when the DNS mode is set to *Send every name to public DNS* — with it off, internal names (`*.corp…`) do not resolve at all, so it is not the default. |
+| `vpnc-script-win--no-dns.js` | The same script with its **DNS-configuration block disabled**. Used in the default DNS mode, *Send every name to public DNS*: the VPN never touches system DNS, so downloads and public hosts keep working out of the box. The trade-off is that internal names (`*.corp…`) do not resolve until you switch to internal DNS under Settings → DNS. |
 
 ### DNS and the split-DNS rules
 

@@ -120,7 +120,7 @@ public sealed class AppCoordinator
             // first powershell spawn can take as long as the handshake. Left unordered it can
             // land after the connect installs its rules and delete them again, which looks
             // exactly like the gateway having reported no resolvers.
-            _ = staleRulesRemoved.ContinueWith(_ => _controller.ConnectAsync(), TaskScheduler.Default);
+            _ = staleRulesRemoved.ContinueWith(_ => _controller.ConnectAtLoginAsync(), TaskScheduler.Default);
         }
     }
 

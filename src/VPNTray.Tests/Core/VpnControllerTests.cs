@@ -61,8 +61,11 @@ public class VpnControllerTests
         IOpenConnectProcessRunning openConnect,
         INetworkMonitor network,
         Func<VpnConfig?> loadConfig,
-        ISplitDnsConfigurator? splitDns = null)
-        => new(openConnect, network, loadConfig, splitDns ?? new FakeSplitDns());
+        ISplitDnsConfigurator? splitDns = null,
+        TimeSpan? loginNetworkWait = null,
+        IReadOnlyList<TimeSpan>? loginRetryBackoff = null)
+        => new(openConnect, network, loadConfig, splitDns ?? new FakeSplitDns(),
+            loginNetworkWait, loginRetryBackoff);
 
     [Fact]
     public async Task Connect_Success_SetsConnectedAndAutoReconnect()
@@ -460,6 +463,148 @@ public class VpnControllerTests
         c.StopForShutdown();
 
         Assert.False(net.HasSubscribers);
+    }
+
+    [Fact]
+    public async Task ConnectAtLogin_WhenNetworkIsUp_Connects()
+    {
+        var oc = new FakeOpenConnect();
+        var c = Build(oc, new FakeNetworkMonitor(), () => Good());
+
+        await c.ConnectAtLoginAsync();
+
+        Assert.Equal(VpnStatus.Connected, c.State.Status);
+        Assert.True(c.ShouldAutoReconnect);
+    }
+
+    [Fact]
+    public async Task ConnectAtLogin_WaitsForTheNetwork_BeforeDialling()
+    {
+        var oc = new FakeOpenConnect();
+        var net = new FakeNetworkMonitor { IsAvailable = false };
+        var c = Build(oc, net, () => Good());
+
+        var task = c.ConnectAtLoginAsync();
+        await Task.Delay(100);
+        Assert.Equal(0, oc.StartCount);   // no dial into a network that is not there yet
+
+        net.IsAvailable = true;
+        net.Raise(true);
+        await task;
+
+        Assert.Equal(VpnStatus.Connected, c.State.Status);
+        Assert.Equal(1, oc.StartCount);
+    }
+
+    [Fact]
+    public async Task ConnectAtLogin_WhenTheNetworkNeverComes_StandsDownButKeepsIntent()
+    {
+        var oc = new FakeOpenConnect();
+        var net = new FakeNetworkMonitor { IsAvailable = false };
+        var c = Build(oc, net, () => Good(), loginNetworkWait: TimeSpan.FromMilliseconds(50));
+
+        await c.ConnectAtLoginAsync();
+
+        Assert.Equal(0, oc.StartCount);
+        Assert.Equal(VpnStatus.Disconnected, c.State.Status);   // nothing was attempted, nothing failed
+        Assert.True(c.ShouldAutoReconnect);   // the next reachability event finishes the job
+    }
+
+    [Fact]
+    public async Task ConnectAtLogin_RetriesWithBackoff_ThenLeavesIntentArmed()
+    {
+        var oc = new FakeOpenConnect { NextHandshake = new(false, "gateway unreachable") };
+        var c = Build(oc, new FakeNetworkMonitor(), () => Good(),
+            loginRetryBackoff: new[] { TimeSpan.FromMilliseconds(1), TimeSpan.FromMilliseconds(1) });
+
+        await c.ConnectAtLoginAsync();
+
+        Assert.Equal(3, oc.StartCount);   // the first attempt plus one per backoff entry
+        Assert.Equal(VpnStatus.Failed, c.State.Status);
+        Assert.True(c.ShouldAutoReconnect);
+    }
+
+    /// <summary>
+    /// The Failed-state seam: a login connect the network defeated lands in Failed, not
+    /// Disconnected, and with the intent armed the reachability handler must retry from there.
+    /// </summary>
+    [Fact]
+    public async Task ConnectAtLogin_FailedAttempt_IsRetriedWhenTheNetworkReturns()
+    {
+        var oc = new FakeOpenConnect { NextHandshake = new(false, "gateway unreachable") };
+        var net = new FakeNetworkMonitor();
+        var c = Build(oc, net, () => Good(), loginRetryBackoff: Array.Empty<TimeSpan>());
+        c.StartNetworkMonitoring();
+
+        await c.ConnectAtLoginAsync();
+        Assert.Equal(VpnStatus.Failed, c.State.Status);
+
+        oc.NextHandshake = new(true, null);
+        net.Raise(true);
+        await WaitUntilAsync(() => c.State.Status == VpnStatus.Connected);
+
+        Assert.Equal(VpnStatus.Connected, c.State.Status);
+    }
+
+    /// <summary>Polls instead of a fixed sleep: the reachability connect is fire-and-forget,
+    /// and a fixed delay is either flaky on a loaded CI box or slow everywhere else.</summary>
+    private static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 5000)
+    {
+        var deadline = Environment.TickCount64 + timeoutMs;
+        while (!condition() && Environment.TickCount64 < deadline)
+            await Task.Delay(10);
+    }
+
+    [Fact]
+    public async Task Disconnect_WhileLoginConnectWaitsForNetwork_CancelsTheWait()
+    {
+        var oc = new FakeOpenConnect();
+        var net = new FakeNetworkMonitor { IsAvailable = false };
+        var c = Build(oc, net, () => Good(), loginNetworkWait: TimeSpan.FromMinutes(10));
+
+        var login = c.ConnectAtLoginAsync();
+        await c.DisconnectAsync();
+        await login;   // must return promptly, not sit out the 10-minute wait
+
+        Assert.Equal(0, oc.StartCount);
+        Assert.Equal(VpnStatus.Disconnected, c.State.Status);
+        Assert.False(c.ShouldAutoReconnect);   // an explicit disconnect withdraws the intent
+    }
+
+    [Fact]
+    public async Task Disconnect_WhileLoginConnectSitsOutItsBackoff_StopsTheRetries()
+    {
+        var oc = new FakeOpenConnect { NextHandshake = new(false, "gateway unreachable") };
+        var c = Build(oc, new FakeNetworkMonitor(), () => Good(),
+            loginRetryBackoff: new[] { TimeSpan.FromMinutes(10) });
+
+        // The failure path runs synchronously against the fakes, so by the time the call
+        // returns its task the first dial has failed and the backoff delay is pending.
+        var login = c.ConnectAtLoginAsync();
+        Assert.Equal(1, oc.StartCount);
+
+        await c.DisconnectAsync();
+        await login;   // must return promptly, not sit out the 10-minute backoff
+
+        Assert.Equal(1, oc.StartCount);   // no further dial after the disconnect
+        Assert.False(c.ShouldAutoReconnect);
+    }
+
+    [Fact]
+    public async Task ManualConnectFailure_StillDoesNotAutoRetry()
+    {
+        var oc = new FakeOpenConnect { NextHandshake = new(false, "Authentication failed") };
+        var net = new FakeNetworkMonitor();
+        var c = Build(oc, net, () => Good());
+        c.StartNetworkMonitoring();
+
+        await c.ConnectAsync();
+        Assert.Equal(VpnStatus.Failed, c.State.Status);
+
+        net.Raise(true);
+        await Task.Delay(100);
+
+        Assert.Equal(1, oc.StartCount);   // no intent, no retry
     }
 
     [Fact]

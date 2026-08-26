@@ -6,6 +6,8 @@ public sealed class NetworkMonitor : INetworkMonitor
 {
     public event Action<bool>? ReachabilityChanged;
 
+    public bool IsAvailable => NetworkInterface.GetIsNetworkAvailable();
+
     public void Start()
     {
         NetworkChange.NetworkAvailabilityChanged += OnAvailabilityChanged;

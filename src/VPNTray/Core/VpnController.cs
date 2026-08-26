@@ -24,18 +24,44 @@ public sealed class VpnController : INotifyPropertyChanged
 
     private VpnState _state = VpnState.Disconnected;
     private CancellationTokenSource? _watchdog;
+    private CancellationTokenSource? _loginConnect;
     private int _shutdownStarted;
 
+    /// <summary>
+    /// How long the logon connect waits for the network before standing down. Generous on
+    /// purpose: it costs nothing while waiting (event-driven, no dial), and slow Wi-Fi plus
+    /// 802.1x plus DHCP can genuinely take this long after a cold boot.
+    /// </summary>
+    private static readonly TimeSpan DefaultLoginNetworkWait = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    /// Pauses between logon connect attempts. Needed because "network available" only means an
+    /// adapter came up — the route to the gateway, DNS, or a captive portal can lag behind it.
+    /// </summary>
+    private static readonly TimeSpan[] DefaultLoginRetryBackoff =
+    {
+        TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(30),
+    };
+
+    private readonly TimeSpan _loginNetworkWait;
+    private readonly IReadOnlyList<TimeSpan> _loginRetryBackoff;
+
+    /// <param name="loginNetworkWait">Test seam — production callers take the default.</param>
+    /// <param name="loginRetryBackoff">Test seam — production callers take the default.</param>
     public VpnController(
         IOpenConnectProcessRunning openConnect,
         INetworkMonitor network,
         Func<VpnConfig?> loadConfig,
-        ISplitDnsConfigurator splitDns)
+        ISplitDnsConfigurator splitDns,
+        TimeSpan? loginNetworkWait = null,
+        IReadOnlyList<TimeSpan>? loginRetryBackoff = null)
     {
         _openConnect = openConnect;
         _network = network;
         _loadConfig = loadConfig;
         _splitDns = splitDns;
+        _loginNetworkWait = loginNetworkWait ?? DefaultLoginNetworkWait;
+        _loginRetryBackoff = loginRetryBackoff ?? DefaultLoginRetryBackoff;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -121,8 +147,98 @@ public sealed class VpnController : INotifyPropertyChanged
         }
     }
 
+    /// <summary>
+    /// The logon-start connect. A plain <see cref="ConnectAsync"/> assumes the network is
+    /// there, which right after logon it routinely is not — Wi-Fi association, 802.1x and DHCP
+    /// all trail the desktop by seconds, and a dial into that gap burns its whole handshake
+    /// timeout and fails. Three differences from a manual connect, all from that one fact:
+    ///
+    /// 1. Waits (bounded, event-driven) for the network before the first dial.
+    /// 2. Arms <see cref="ShouldAutoReconnect"/> up front rather than on success: connect-at-login
+    ///    is the user saying "be connected", and a slow network should postpone that, not veto
+    ///    it. The reachability handler finishes the job when the network eventually shows up.
+    /// 3. Retries with backoff, because "network available" only means an adapter came up —
+    ///    the route to the gateway can lag behind it.
+    /// </summary>
+    public async Task ConnectAtLoginAsync()
+    {
+        ShouldAutoReconnect = true;
+
+        var cts = new CancellationTokenSource();
+        _loginConnect = cts;
+        try
+        {
+            if (!await WaitForNetworkAsync(_loginNetworkWait, cts.Token))
+            {
+                // Not Failed — nothing was attempted. The armed intent connects on the next
+                // reachability event instead.
+                AppLogger.Shared.Info(
+                    $"login connect: no network after {_loginNetworkWait.TotalSeconds:0}s, " +
+                    "standing by until it returns");
+                return;
+            }
+
+            for (int attempt = 0; ; attempt++)
+            {
+                // A Disconnect during the backoff withdraws the intent — honour it.
+                if (!ShouldAutoReconnect) return;
+
+                await ConnectAsync();
+                if (State.Status == VpnStatus.Connected) return;
+
+                if (attempt >= _loginRetryBackoff.Count)
+                {
+                    AppLogger.Shared.Info(
+                        "login connect: attempts exhausted, waiting for a network change");
+                    return;
+                }
+                await Task.Delay(_loginRetryBackoff[attempt], cts.Token);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Disconnect or shutdown pulled the plug; both already put the state where it belongs.
+        }
+        finally
+        {
+            // Cleared but never disposed: Cancel arrives from other threads (Disconnect,
+            // shutdown) and must not be able to race a Dispose.
+            _loginConnect = null;
+        }
+    }
+
+    /// <summary>
+    /// True the moment the network is up, false when <paramref name="limit"/> runs out first.
+    /// Event-driven rather than polled; the double IsAvailable check closes the gap where the
+    /// network comes up between the first look and the subscription, whose event nobody heard.
+    /// </summary>
+    private async Task<bool> WaitForNetworkAsync(TimeSpan limit, CancellationToken token)
+    {
+        if (_network.IsAvailable) return true;
+
+        var up = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnUp(bool reachable) { if (reachable) up.TrySetResult(true); }
+        _network.ReachabilityChanged += OnUp;
+        try
+        {
+            if (_network.IsAvailable) return true;
+            AppLogger.Shared.Info(
+                $"login connect: network not up yet, waiting up to {limit.TotalSeconds:0}s");
+            var winner = await Task.WhenAny(up.Task, Task.Delay(limit, token));
+            token.ThrowIfCancellationRequested();
+            return winner == up.Task;
+        }
+        finally
+        {
+            _network.ReachabilityChanged -= OnUp;
+        }
+    }
+
     public async Task DisconnectAsync()
     {
+        // A login connect still waiting on the network or sitting out a backoff must not
+        // redial after an explicit disconnect.
+        _loginConnect?.Cancel();
         await _gate.WaitAsync();
         try
         {
@@ -273,6 +389,7 @@ public sealed class VpnController : INotifyPropertyChanged
 
         AppLogger.Shared.Info("shutdown: cancelling watchdog");
         try { _watchdog?.Cancel(); _watchdog?.Dispose(); _watchdog = null; } catch { /* ignore */ }
+        try { _loginConnect?.Cancel(); } catch { /* ignore */ }
 
         AppLogger.Shared.Info("shutdown: stopping openconnect");
         try { _openConnect.Stop(); } catch { /* ignore */ }
@@ -305,7 +422,12 @@ public sealed class VpnController : INotifyPropertyChanged
         {
             _ = AutoDisconnectAsync();
         }
-        else if (reachable && State.Status == VpnStatus.Disconnected && ShouldAutoReconnect)
+        // Failed counts alongside Disconnected: a connect the network's absence defeated — the
+        // logon dial, or a recovery attempt that lost the race with DHCP — lands in Failed, and
+        // with the intent still armed the next network arrival is exactly the cue to try again.
+        // Manual connects stay out of this: they never arm the intent on failure.
+        else if (reachable && ShouldAutoReconnect &&
+                 State.Status is VpnStatus.Disconnected or VpnStatus.Failed)
         {
             _ = ConnectAsync();
         }

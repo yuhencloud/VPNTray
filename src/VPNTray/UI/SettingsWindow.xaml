@@ -169,7 +169,7 @@
                         <CheckBox x:Name="ConnectAtLoginBox" Content="Connect automatically" Margin="24,10,0,0"
                                   IsEnabled="{Binding IsChecked, ElementName=LaunchAtLoginBox}"/>
                         <TextBlock Style="{StaticResource Body}" FontSize="11" TextWrapping="Wrap" Margin="48,4,0,0"
-                                   Text="Dial the VPN as soon as the logon start comes up. Only that start — opening the app yourself never auto-connects."/>
+                                   Text="Dial the VPN once the logon start comes up and the network is ready — it waits for the network rather than failing into it. Only that start — opening the app yourself never auto-connects."/>
 
                         <TextBlock Style="{StaticResource Body}" FontSize="11" TextWrapping="Wrap" Margin="24,10,0,0"
                                    Text="Applied immediately — these are not part of Save."/>

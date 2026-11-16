@@ -1,5 +1,12 @@
 # Release notes
 
+## 1.5.1 — 2026-11-16
+
+- Fix: when the VPN gateway drops the secure connection before the login form, the app
+  now says the gateway could not be reached instead of asking you to check your password,
+  and keeps reconnecting automatically. In 1.5.0 this was mistaken for a rejected login,
+  which also switched automatic reconnects off.
+
 ## 1.5.0 — 2026-11-16
 
 - New "One-time code" setting for gateways that want the 6-digit code typed straight

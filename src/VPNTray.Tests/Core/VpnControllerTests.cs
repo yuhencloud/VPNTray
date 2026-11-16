@@ -754,4 +754,21 @@ public class VpnControllerTests
         Assert.Equal(VpnStatus.Failed, c.State.Status);
         Assert.False(c.ShouldAutoReconnect);
     }
+
+    [Fact]
+    public async Task ConnectAtLogin_GatewayDropsTls_KeepsRetrying_AndStaysArmed()
+    {
+        // A transport failure sent no credentials, so it must not disarm like a rejected login.
+        var stderr = "SSL connection failure: The TLS connection was non-properly terminated.\n" +
+                     "Failed to open HTTPS connection to vpn.example.com\n" +
+                     "Failed to complete authentication";
+        var oc = new FakeOpenConnect { NextHandshake = new(false, HandshakeAnalyzer.FriendlyReason(stderr)) };
+        var c = Build(oc, new FakeNetworkMonitor(), () => Good(),
+            loginRetryBackoff: new[] { TimeSpan.FromMilliseconds(1), TimeSpan.FromMilliseconds(1) });
+
+        await c.ConnectAtLoginAsync();
+
+        Assert.Equal(3, oc.StartCount);
+        Assert.True(c.ShouldAutoReconnect);
+    }
 }

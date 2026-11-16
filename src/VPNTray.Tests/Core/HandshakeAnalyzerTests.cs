@@ -96,4 +96,30 @@ public class HandshakeAnalyzerTests
         var h = HandshakeAnalyzer.Evaluate("negotiating...", processAlive: true, gracePassed: false, childConfirmedAlive: true);
         Assert.Null(h);
     }
+
+    // Shape of a real failure against a gateway node that accepts TCP but drops the TLS
+    // handshake, host replaced by a placeholder. openconnect still ends with "Failed to
+    // complete authentication", although no credentials were ever sent.
+    private const string TlsDroppedStderr = """
+        SSL connection failure: The TLS connection was non-properly terminated.
+        Failed to open HTTPS connection to vpn.example.com
+        Failed to complete authentication
+        """;
+
+    [Fact]
+    public void Evaluate_TlsDroppedBeforeLogin_IsNotAnAuthFailure()
+    {
+        var h = HandshakeAnalyzer.Evaluate(TlsDroppedStderr,
+            processAlive: false, gracePassed: false, childConfirmedAlive: false);
+
+        Assert.NotNull(h);
+        Assert.False(h!.Connected);
+        Assert.NotEqual(HandshakeAnalyzer.AuthFailedReason, h.Reason);
+        Assert.Contains("gateway", h.Reason);
+        Assert.DoesNotContain("password", h.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void FriendlyReason_TlsDroppedBeforeLogin_IsNotAnAuthFailure()
+        => Assert.NotEqual(HandshakeAnalyzer.AuthFailedReason, HandshakeAnalyzer.FriendlyReason(TlsDroppedStderr));
 }

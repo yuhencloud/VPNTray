@@ -8,6 +8,13 @@ public static class HandshakeAnalyzer
 {
     private const string PinMismatchMarker = "match server's certificate";
 
+    private const string TlsDroppedMarker = "SSL connection failure";
+    private const string HttpsUnreachableMarker = "Failed to open HTTPS connection";
+
+    private const string GatewayUnreachableReason =
+        "Could not open a secure connection to the VPN gateway — it dropped the connection " +
+        "before login. Try again; if it keeps failing, the gateway may be having trouble.";
+
     /// <summary>The reason for a rejected login. Public so callers can tell it from transient failures.</summary>
     public const string AuthFailedReason =
         "Authentication failed — check the password and TOTP secret, and the OTP mode in Settings.";
@@ -25,6 +32,11 @@ public static class HandshakeAnalyzer
     {
         "Login failed", "authentication failure",
         PinMismatchMarker, "Certificate verification failure", "Error in the certificate",
+        // Transport failures, after the cert markers (a bad cert also prints them) and before
+        // the auth give-up line (printed after them too). No credentials were ever sent, so
+        // calling this an auth failure would blame the password and stop the auto-reconnect
+        // that a flaky gateway node needs.
+        TlsDroppedMarker, HttpsUnreachableMarker,
         // Emitted when auth gives up — including when --non-inter aborts on a form we
         // cannot answer (e.g. the gateway also wants an auth group or a PIN change).
         "Failed to complete authentication",
@@ -69,6 +81,7 @@ public static class HandshakeAnalyzer
         "Login failed" or "authentication failure" or "Failed to complete authentication" =>
             AuthFailedReason,
         PinMismatchMarker => PinMismatchReason(fullStderr),
+        TlsDroppedMarker or HttpsUnreachableMarker => GatewayUnreachableReason,
         "Certificate verification failure" or "Error in the certificate" =>
             "Server certificate verification failed. The gateway cert may have rotated — update Server cert pin in Settings.",
         _ => Tail(fullStderr, 200),

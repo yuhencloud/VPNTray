@@ -8,6 +8,10 @@ public static class HandshakeAnalyzer
 {
     private const string PinMismatchMarker = "match server's certificate";
 
+    /// <summary>The reason for a rejected login. Public so callers can tell it from transient failures.</summary>
+    public const string AuthFailedReason =
+        "Authentication failed — check the password and TOTP secret, and the OTP mode in Settings.";
+
     private static readonly string[] SuccessMarkers =
         { "Connected as", "CSTP connected", "Established DTLS", "ESP session established" };
 
@@ -63,7 +67,7 @@ public static class HandshakeAnalyzer
     private static string MapMarker(string marker, string fullStderr) => marker switch
     {
         "Login failed" or "authentication failure" or "Failed to complete authentication" =>
-            "Authentication failed — please check your password and TOTP secret.",
+            AuthFailedReason,
         PinMismatchMarker => PinMismatchReason(fullStderr),
         "Certificate verification failure" or "Error in the certificate" =>
             "Server certificate verification failed. The gateway cert may have rotated — update Server cert pin in Settings.",

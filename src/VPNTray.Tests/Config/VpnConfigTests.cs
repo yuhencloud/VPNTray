@@ -210,4 +210,39 @@ public class VpnConfigTests
 
         Assert.False(before.TunnelSettingsMatch(after));
     }
+
+    [Fact]
+    public void AppendOtpToPassword_DefaultsOn()
+        => Assert.True(new VpnConfig().AppendOtpToPassword);
+
+    [Fact]
+    public void Deserialize_ConfigWrittenBeforeTheOtpSetting_GetsAppendedMode()
+    {
+        // A file saved by an older build has no key for it at all.
+        var c = JsonSerializer.Deserialize<VpnConfig>("""{ "Username": "u", "Password": "pw" }""")!;
+        Assert.True(c.AppendOtpToPassword);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void OtpMode_SurvivesSanitizeAndSerialization(bool append)
+    {
+        var c = FullyConfigured();
+        c.AppendOtpToPassword = append;
+
+        Assert.Equal(append, c.Sanitized().AppendOtpToPassword);
+        var roundTripped = JsonSerializer.Deserialize<VpnConfig>(JsonSerializer.Serialize(c))!;
+        Assert.Equal(append, roundTripped.AppendOtpToPassword);
+    }
+
+    [Fact]
+    public void TunnelSettingsMatch_IsFalseWhenTheOtpModeDiffers()
+    {
+        var before = FullyConfigured();
+        var after = FullyConfigured();
+        after.AppendOtpToPassword = !before.AppendOtpToPassword;
+
+        Assert.False(before.TunnelSettingsMatch(after));
+    }
 }

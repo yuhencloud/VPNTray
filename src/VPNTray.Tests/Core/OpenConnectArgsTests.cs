@@ -12,6 +12,7 @@ public class OpenConnectArgsTests
         ServerCertPin = "pin-sha256:AAAA",
         VpncScriptPath = @"C:\app\Resources\vpnc-script-win.js",
         SkipDnsModification = false,
+        AppendOtpToPassword = false,
     };
 
     private const string TokenPath = @"C:\temp\vpntray-abc.tok";
@@ -88,4 +89,30 @@ public class OpenConnectArgsTests
         int i = args.ToList().IndexOf("--script");
         Assert.EndsWith("vpnc-script-win--no-dns.js", args[i + 1]);
     }
+
+    [Fact]
+    public void Build_AppendedOtp_PassesNoSoftTokenFlags()
+    {
+        var cfg = Cfg();
+        cfg.AppendOtpToPassword = true;
+        var args = OpenConnectArgs.Build(cfg, tokenSecretPath: null);
+
+        Assert.DoesNotContain("--token-mode", args);
+        Assert.DoesNotContain("--token-secret", args);
+        Assert.Contains("--passwd-on-stdin", args);
+        Assert.Contains("--non-inter", args);
+        Assert.Equal("vpn.example.com", args[^1]);
+    }
+
+    [Fact]
+    public void Build_AppendedOtp_RejectsATokenFile()
+    {
+        var cfg = Cfg();
+        cfg.AppendOtpToPassword = true;
+        Assert.Throws<ArgumentException>(() => OpenConnectArgs.Build(cfg, TokenPath));
+    }
+
+    [Fact]
+    public void Build_SeparatePrompt_RequiresATokenFile()
+        => Assert.Throws<ArgumentException>(() => OpenConnectArgs.Build(Cfg(), tokenSecretPath: null));
 }

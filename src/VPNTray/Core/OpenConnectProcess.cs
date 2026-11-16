@@ -10,28 +10,42 @@ namespace VPNTray.Core;
 public static class OpenConnectArgs
 {
     /// <summary>
-    /// Two-stage auth: the password arrives on stdin, and openconnect answers the
-    /// separate OTP/challenge prompt itself from the TOTP secret in
-    /// <paramref name="tokenSecretPath"/>. The secret is passed by file — never on the
-    /// command line, which is readable by other processes of this user.
+    /// The password always arrives on stdin. What happens to the OTP depends on
+    /// <see cref="VpnConfig.AppendOtpToPassword"/>:
+    /// <list type="bullet">
+    /// <item>appended — the app already put it on the end of the stdin password, so no
+    /// soft-token flags are passed and <paramref name="tokenSecretPath"/> must be null;</item>
+    /// <item>separate prompt — openconnect answers the OTP/challenge prompt itself from the
+    /// TOTP secret in <paramref name="tokenSecretPath"/>. The secret is passed by file — never
+    /// on the command line, which is readable by other processes of this user.</item>
+    /// </list>
     /// </summary>
-    public static IReadOnlyList<string> Build(VpnConfig config, string tokenSecretPath)
+    public static IReadOnlyList<string> Build(VpnConfig config, string? tokenSecretPath)
     {
+        if (config.AppendOtpToPassword != (tokenSecretPath is null))
+            throw new ArgumentException(
+                "A token-secret file is needed for the separate-prompt OTP mode, and only for it.",
+                nameof(tokenSecretPath));
+
         string script = config.SkipDnsModification
             ? BundledBinaries.VpncScriptNoDns
             : config.VpncScriptPath;
 
-        return new List<string>
+        var args = new List<string>
         {
             "--script", script,
             "--user", config.Username,
-            "--passwd-on-stdin",                    // stage 1: the password
-            "--token-mode", "totp",                 // stage 2: openconnect fills in the OTP
-            "--token-secret", "@" + tokenSecretPath,
-            "--non-inter",                          // fail loudly on an unexpected form instead of hanging
-            "--servercert", config.ServerCertPin,
-            config.Gateway,
+            "--passwd-on-stdin",                    // the password (with the OTP on the end, in appended mode)
         };
+        if (tokenSecretPath is not null)
+        {
+            args.Add("--token-mode"); args.Add("totp"); // second prompt: openconnect fills in the OTP
+            args.Add("--token-secret"); args.Add("@" + tokenSecretPath);
+        }
+        args.Add("--non-inter");                    // fail loudly on an unexpected form instead of hanging
+        args.Add("--servercert"); args.Add(config.ServerCertPin);
+        args.Add(config.Gateway);
+        return args;
     }
 
     /// <summary>
@@ -99,7 +113,8 @@ public sealed class OpenConnectProcess : IOpenConnectProcessRunning
         // Interlocked, matching the delete side: StopForShutdown reaches Stop() without the
         // controller's gate, so it can null this field while Start is mid-flight. A plain write
         // losing that race orphans a file holding the TOTP secret until the next sweep.
-        string tokenFile = WriteTokenSecret(config.TotpSecret);
+        // Appended-OTP mode never hands openconnect the secret, so no file is written at all.
+        string? tokenFile = config.AppendOtpToPassword ? null : WriteTokenSecret(config.TotpSecret);
         DeleteTempFile(ref _tokenFile);
         Interlocked.Exchange(ref _tokenFile, tokenFile);
 

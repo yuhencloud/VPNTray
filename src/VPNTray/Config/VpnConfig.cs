@@ -8,10 +8,25 @@ public class VpnConfig
     public string Username { get; set; } = "";
 
     /// <summary>
-    /// The full login password. The gateway asks for it first; the OTP is a separate
-    /// second prompt that openconnect answers from <see cref="TotpSecret"/>.
+    /// The static login password, without any OTP. How the OTP reaches the gateway is
+    /// decided by <see cref="AppendOtpToPassword"/>.
     /// </summary>
     public string Password { get; set; } = "";
+
+    /// <summary>
+    /// How the gateway wants the one-time code:
+    /// <list type="bullet">
+    /// <item><c>true</c> — one prompt, password and current 6-digit code concatenated with
+    /// nothing between them (<c>Abc#2026</c> + <c>123456</c> → <c>Abc#2026123456</c>). The app
+    /// computes the code and sends the combined string on stdin.</item>
+    /// <item><c>false</c> — two prompts: the password first, then a separate OTP challenge
+    /// that openconnect answers itself from <see cref="TotpSecret"/>.</item>
+    /// </list>
+    /// ON by default because that is what the gateway switched to; a config file written
+    /// before this setting existed picks up the default and keeps connecting without a visit
+    /// to Settings.
+    /// </summary>
+    public bool AppendOtpToPassword { get; set; } = true;
 
     /// <summary>
     /// Migration shim for schema v1, where this field held the static part of a
@@ -96,6 +111,7 @@ public class VpnConfig
     {
         Username = Clean(Username),
         Password = Clean(Password),
+        AppendOtpToPassword = AppendOtpToPassword,
         TotpSecret = Clean(TotpSecret),
         Gateway = Clean(Gateway),
         ServerCertPin = Clean(ServerCertPin),
@@ -109,7 +125,7 @@ public class VpnConfig
     };
 
     /// <summary>
-    /// True when nothing openconnect reads at spawn time differs — credentials, gateway, pin,
+    /// True when nothing openconnect reads at spawn time differs — credentials, OTP mode, gateway, pin,
     /// the two native-tool paths, and the DNS mode (which picks the vpnc-script variant).
     ///
     /// All three suffix lists are deliberately excluded: they become NRPT rules applied after
@@ -121,6 +137,7 @@ public class VpnConfig
     public bool TunnelSettingsMatch(VpnConfig other) =>
         Username == other.Username &&
         Password == other.Password &&
+        AppendOtpToPassword == other.AppendOtpToPassword &&
         TotpSecret == other.TotpSecret &&
         Gateway == other.Gateway &&
         ServerCertPin == other.ServerCertPin &&

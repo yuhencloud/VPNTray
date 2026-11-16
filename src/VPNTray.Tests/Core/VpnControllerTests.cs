@@ -55,6 +55,9 @@ public class VpnControllerTests
     {
         Username = "u", Password = "pw", TotpSecret = "GEZDGNBVGY3TQOJQ",
         Gateway = "g", ServerCertPin = "pin-sha256:AAAA",
+        // The two-prompt mode keeps the existing tests clock-independent; the appended mode
+        // has its own tests below, with a controlled clock.
+        AppendOtpToPassword = false,
     };
 
     private static VpnController Build(
@@ -63,9 +66,11 @@ public class VpnControllerTests
         Func<VpnConfig?> loadConfig,
         ISplitDnsConfigurator? splitDns = null,
         TimeSpan? loginNetworkWait = null,
-        IReadOnlyList<TimeSpan>? loginRetryBackoff = null)
+        IReadOnlyList<TimeSpan>? loginRetryBackoff = null,
+        Func<DateTimeOffset>? clock = null,
+        Func<TimeSpan, CancellationToken, Task>? delay = null)
         => new(openConnect, network, loadConfig, splitDns ?? new FakeSplitDns(),
-            loginNetworkWait, loginRetryBackoff);
+            loginNetworkWait, loginRetryBackoff, clock, delay);
 
     [Fact]
     public async Task Connect_Success_SetsConnectedAndAutoReconnect()
@@ -624,5 +629,129 @@ public class VpnControllerTests
         c.MarkConfigured();
         Assert.Equal(VpnStatus.Disconnected, c.State.Status);
         Assert.False(c.State.IsSetupIncomplete);
+    }
+
+    // ----- Appended-OTP mode -----------------------------------------------------------
+
+    private const string Secret = "GEZDGNBVGY3TQOJQ";
+
+    /// <summary>Exactly on a 30-second boundary.</summary>
+    private static readonly DateTimeOffset WindowStart = DateTimeOffset.FromUnixTimeSeconds(1_700_000_010);
+
+    private static VpnConfig Appended()
+    {
+        var c = Good();
+        c.AppendOtpToPassword = true;
+        return c;
+    }
+
+    /// <summary>A clock that only moves when the controller's delay seam is awaited.</summary>
+    private sealed class ManualClock
+    {
+        public DateTimeOffset Now;
+        public readonly List<TimeSpan> Waits = new();
+
+        public Task Delay(TimeSpan span, CancellationToken token)
+        {
+            Waits.Add(span);
+            Now += span;
+            return Task.CompletedTask;
+        }
+    }
+
+    [Fact]
+    public async Task Connect_AppendedOtp_SendsPasswordFollowedByTheCurrentCode()
+    {
+        var clock = new ManualClock { Now = WindowStart.AddSeconds(10) };
+        var oc = new FakeOpenConnect();
+        var c = Build(oc, new FakeNetworkMonitor(), Appended, clock: () => clock.Now, delay: clock.Delay);
+
+        await c.ConnectAsync();
+
+        Assert.Equal(VpnStatus.Connected, c.State.Status);
+        Assert.Equal("pw" + TotpGenerator.Code(Secret, clock.Now), oc.LastPassword);
+        Assert.Empty(clock.Waits);
+    }
+
+    [Fact]
+    public async Task Connect_AppendedOtp_NeverResendsACodeFromTheSameWindow()
+    {
+        var clock = new ManualClock { Now = WindowStart.AddSeconds(5) };
+        var oc = new FakeOpenConnect { NextHandshake = new(false, "gateway unreachable") };
+        var c = Build(oc, new FakeNetworkMonitor(), Appended, clock: () => clock.Now, delay: clock.Delay);
+
+        await c.ConnectAsync();
+        var first = oc.LastPassword;
+        clock.Now = clock.Now.AddSeconds(2);   // retry inside the same 30-second window
+        await c.ConnectAsync();
+
+        Assert.Single(clock.Waits);
+        Assert.Equal(OtpWindow.Counter(WindowStart) + 1, OtpWindow.Counter(clock.Now));
+        Assert.Equal("pw" + TotpGenerator.Code(Secret, clock.Now), oc.LastPassword);
+        Assert.NotEqual(first, oc.LastPassword);
+    }
+
+    [Fact]
+    public async Task Connect_AppendedOtp_SkipsACodeAboutToExpire()
+    {
+        var clock = new ManualClock { Now = WindowStart.AddSeconds(29) };
+        var oc = new FakeOpenConnect();
+        var c = Build(oc, new FakeNetworkMonitor(), Appended, clock: () => clock.Now, delay: clock.Delay);
+
+        await c.ConnectAsync();
+
+        Assert.Single(clock.Waits);
+        Assert.Equal(OtpWindow.Counter(WindowStart) + 1, OtpWindow.Counter(clock.Now));
+        Assert.Equal("pw" + TotpGenerator.Code(Secret, clock.Now), oc.LastPassword);
+    }
+
+    [Fact]
+    public async Task Connect_SeparatePrompt_SendsThePasswordAlone()
+    {
+        var oc = new FakeOpenConnect();
+        var c = Build(oc, new FakeNetworkMonitor(), () => Good());
+
+        await c.ConnectAsync();
+
+        Assert.Equal("pw", oc.LastPassword);
+    }
+
+    [Fact]
+    public async Task Disconnect_DuringTheOtpWait_CancelsTheConnect()
+    {
+        // The code for this window is already spent and the real delay is used, so the second
+        // connect sits out the rest of the window until the disconnect cancels it.
+        var clock = new ManualClock { Now = WindowStart.AddSeconds(5) };
+        var oc = new FakeOpenConnect { NextHandshake = new(false, "gateway unreachable") };
+        var c = Build(oc, new FakeNetworkMonitor(), Appended, clock: () => clock.Now,
+            delay: (span, token) => Task.Delay(TimeSpan.FromMinutes(10), token));
+        await c.ConnectAsync();
+
+        var connect = c.ConnectAsync();
+        Assert.False(connect.IsCompleted);
+        await c.DisconnectAsync();
+        await connect;   // must return promptly, not sit out the wait
+
+        Assert.Equal(1, oc.StartCount);
+        Assert.Equal(VpnStatus.Disconnected, c.State.Status);
+    }
+
+    [Fact]
+    public async Task ConnectAtLogin_AuthRejected_StopsRetrying_AndDisarmsAutoReconnect()
+    {
+        // Each rejected login counts towards the gateway's account lockout.
+        var oc = new FakeOpenConnect { NextHandshake = new(false, HandshakeAnalyzer.AuthFailedReason) };
+        var net = new FakeNetworkMonitor();
+        var c = Build(oc, net, () => Good(),
+            loginRetryBackoff: new[] { TimeSpan.FromMilliseconds(1), TimeSpan.FromMilliseconds(1) });
+        c.StartNetworkMonitoring();
+
+        await c.ConnectAtLoginAsync();
+        net.Raise(true);
+        await Task.Delay(100);
+
+        Assert.Equal(1, oc.StartCount);
+        Assert.Equal(VpnStatus.Failed, c.State.Status);
+        Assert.False(c.ShouldAutoReconnect);
     }
 }

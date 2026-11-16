@@ -136,6 +136,8 @@ public partial class SettingsWindow : Window
         UsernameBox.Text = c.Username;
         PwdBox.Password = c.Password;
         TotpBox.Password = c.TotpSecret;
+        AppendOtpRadio.IsChecked = c.AppendOtpToPassword;
+        SeparateOtpRadio.IsChecked = !c.AppendOtpToPassword;
         GatewayBox.Text = c.Gateway;
         PinBox.Text = c.ServerCertPin;
         // The stored flag is phrased as an omission ("skip DNS modification"); the UI offers
@@ -180,6 +182,8 @@ public partial class SettingsWindow : Window
         PinBox.TextChanged += (_, _) => Enable();
         PwdBox.PasswordChanged += (_, _) => Enable();
         TotpBox.PasswordChanged += (_, _) => Enable();
+        AppendOtpRadio.Checked += (_, _) => Enable();
+        SeparateOtpRadio.Checked += (_, _) => Enable();
         InternalDnsRadio.Checked += (_, _) => { Enable(); UpdateDnsSummary(); };
         PublicDnsRadio.Checked += (_, _) => { Enable(); UpdateDnsSummary(); };
         BypassDomainsBox.TextChanged += (_, _) => { Enable(); UpdateDnsSummary(); };
@@ -357,6 +361,7 @@ public partial class SettingsWindow : Window
             Username = UsernameBox.Text,
             Password = PwdBox.Password,
             TotpSecret = TotpBox.Password,
+            AppendOtpToPassword = SeparateOtpRadio.IsChecked != true,
             Gateway = GatewayBox.Text,
             ServerCertPin = PinBox.Text,
             OpenconnectPath = existing.OpenconnectPath,

@@ -45,16 +45,31 @@ public sealed class VpnController : INotifyPropertyChanged
 
     private readonly TimeSpan _loginNetworkWait;
     private readonly IReadOnlyList<TimeSpan> _loginRetryBackoff;
+    private readonly Func<DateTimeOffset> _clock;
+    private readonly Func<TimeSpan, CancellationToken, Task> _delay;
+
+    /// <summary>
+    /// TOTP window of the last code this app appended to a password, or null if none yet.
+    /// Only touched under <see cref="_gate"/>.
+    /// </summary>
+    private long? _lastOtpCounter;
+
+    /// <summary>Set while a connect sits out the rest of an OTP window; Disconnect cancels it.</summary>
+    private CancellationTokenSource? _otpWait;
 
     /// <param name="loginNetworkWait">Test seam — production callers take the default.</param>
     /// <param name="loginRetryBackoff">Test seam — production callers take the default.</param>
+    /// <param name="clock">Test seam for the OTP window — production callers take the default.</param>
+    /// <param name="delay">Test seam for the OTP-window wait — production callers take the default.</param>
     public VpnController(
         IOpenConnectProcessRunning openConnect,
         INetworkMonitor network,
         Func<VpnConfig?> loadConfig,
         ISplitDnsConfigurator splitDns,
         TimeSpan? loginNetworkWait = null,
-        IReadOnlyList<TimeSpan>? loginRetryBackoff = null)
+        IReadOnlyList<TimeSpan>? loginRetryBackoff = null,
+        Func<DateTimeOffset>? clock = null,
+        Func<TimeSpan, CancellationToken, Task>? delay = null)
     {
         _openConnect = openConnect;
         _network = network;
@@ -62,6 +77,8 @@ public sealed class VpnController : INotifyPropertyChanged
         _splitDns = splitDns;
         _loginNetworkWait = loginNetworkWait ?? DefaultLoginNetworkWait;
         _loginRetryBackoff = loginRetryBackoff ?? DefaultLoginRetryBackoff;
+        _clock = clock ?? (() => DateTimeOffset.UtcNow);
+        _delay = delay ?? Task.Delay;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -113,11 +130,19 @@ public sealed class VpnController : INotifyPropertyChanged
             }
 
             State = VpnState.Connecting;
+
+            string password;
+            try { password = await LoginPasswordAsync(config); }
+            catch (OperationCanceledException)
+            {
+                // Disconnect or shutdown cancelled the OTP wait; Disconnect sets the state
+                // itself once it gets the gate.
+                return;
+            }
+
             try
             {
-                // Only the password goes over stdin. openconnect answers the second,
-                // separate OTP/challenge prompt itself via --token-mode=totp.
-                _openConnect.Start(config, config.Password);
+                _openConnect.Start(config, password);
                 var handshake = await _openConnect.WaitForHandshakeAsync(TimeSpan.FromSeconds(20));
                 if (handshake.Connected)
                 {
@@ -132,6 +157,14 @@ public sealed class VpnController : INotifyPropertyChanged
                 {
                     _openConnect.Stop();
                     State = VpnState.Failed(handshake.Reason ?? "Connection failed");
+                    if (handshake.Reason == HandshakeAnalyzer.AuthFailedReason)
+                    {
+                        // A rejected login is not something a retry fixes, and the gateway
+                        // locks the account after a few in a row. Stop every automatic redial
+                        // (logon retries, network-return reconnects) until the user acts.
+                        ShouldAutoReconnect = false;
+                        AppLogger.Shared.Info("authentication rejected, automatic reconnects disabled");
+                    }
                 }
             }
             catch (Exception ex)
@@ -145,6 +178,36 @@ public sealed class VpnController : INotifyPropertyChanged
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>
+    /// What goes on openconnect's stdin. In separate-prompt mode only the password —
+    /// openconnect answers the OTP challenge itself via --token-mode=totp. In appended mode the
+    /// password followed directly by the current code, after waiting out the window if this
+    /// app already spent its code or it is about to expire (see <see cref="OtpWindow"/>).
+    /// Caller holds <see cref="_gate"/>. Throws <see cref="OperationCanceledException"/> when
+    /// a disconnect cancels the wait.
+    /// </summary>
+    private async Task<string> LoginPasswordAsync(VpnConfig config)
+    {
+        if (!config.AppendOtpToPassword) return config.Password;
+
+        var wait = OtpWindow.WaitBeforeSend(_clock(), _lastOtpCounter);
+        if (wait > TimeSpan.Zero)
+        {
+            AppLogger.Shared.Info($"OTP: waiting {wait.TotalSeconds:0.0}s for a fresh code");
+            var cts = new CancellationTokenSource();
+            _otpWait = cts;
+            try { await _delay(wait, cts.Token); }
+            finally { _otpWait = null; } // not disposed: Cancel may arrive from another thread
+        }
+
+        var now = _clock();
+        // Recorded before sending: once the code is on the wire the gateway counts it as
+        // used, whatever the outcome of the handshake.
+        _lastOtpCounter = OtpWindow.Counter(now);
+        // Do NOT log the result.
+        return config.Password + TotpGenerator.Code(config.TotpSecret, now);
     }
 
     /// <summary>
@@ -185,6 +248,8 @@ public sealed class VpnController : INotifyPropertyChanged
 
                 await ConnectAsync();
                 if (State.Status == VpnStatus.Connected) return;
+                // Cleared by an auth rejection: retrying a wrong password only locks the account.
+                if (!ShouldAutoReconnect) return;
 
                 if (attempt >= _loginRetryBackoff.Count)
                 {
@@ -239,6 +304,8 @@ public sealed class VpnController : INotifyPropertyChanged
         // A login connect still waiting on the network or sitting out a backoff must not
         // redial after an explicit disconnect.
         _loginConnect?.Cancel();
+        // Likewise a connect sitting out an OTP window, which holds the gate while it waits.
+        _otpWait?.Cancel();
         await _gate.WaitAsync();
         try
         {
@@ -390,6 +457,7 @@ public sealed class VpnController : INotifyPropertyChanged
         AppLogger.Shared.Info("shutdown: cancelling watchdog");
         try { _watchdog?.Cancel(); _watchdog?.Dispose(); _watchdog = null; } catch { /* ignore */ }
         try { _loginConnect?.Cancel(); } catch { /* ignore */ }
+        try { _otpWait?.Cancel(); } catch { /* ignore */ }
 
         AppLogger.Shared.Info("shutdown: stopping openconnect");
         try { _openConnect.Stop(); } catch { /* ignore */ }

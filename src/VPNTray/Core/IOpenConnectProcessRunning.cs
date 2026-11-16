@@ -5,9 +5,11 @@ namespace VPNTray.Core;
 public interface IOpenConnectProcessRunning
 {
     /// <summary>
-    /// Spawn openconnect and write "password\n" to its stdin. That answers only the first
-    /// auth stage; the separate OTP prompt is answered by openconnect from
-    /// <see cref="VpnConfig.TotpSecret"/>. Returns after spawn, not handshake.
+    /// Spawn openconnect and write "password\n" to its stdin. With
+    /// <see cref="VpnConfig.AppendOtpToPassword"/> on, <paramref name="password"/> already
+    /// ends in the current OTP; otherwise it answers only the first auth stage and the
+    /// separate OTP prompt is answered by openconnect from <see cref="VpnConfig.TotpSecret"/>.
+    /// Returns after spawn, not handshake.
     /// </summary>
     void Start(VpnConfig config, string password);
 

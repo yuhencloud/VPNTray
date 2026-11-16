@@ -70,6 +70,18 @@
                         <Button Content="Scan screen for QR" Click="OnScanQrScreen" FontSize="11" Padding="16,5" MinWidth="130" Margin="8,0,0,0"/>
                     </StackPanel>
 
+                    <!-- Which login form the gateway shows. Two named modes, like DNS below:
+                         the off state of a single checkbox would not say what happens instead. -->
+                    <TextBlock Text="One-time code" Style="{StaticResource FieldLabel}"/>
+                    <RadioButton x:Name="AppendOtpRadio" GroupName="OtpMode" Margin="0,2,0,0"
+                                 Content="Append to password (default)"/>
+                    <TextBlock Style="{StaticResource Body}" FontSize="11" TextWrapping="Wrap" Margin="24,3,0,0"
+                               Text="One password prompt: the app sends your password followed directly by the current 6-digit code, no space between."/>
+                    <RadioButton x:Name="SeparateOtpRadio" GroupName="OtpMode" Margin="0,8,0,0"
+                                 Content="Separate code prompt"/>
+                    <TextBlock Style="{StaticResource Body}" FontSize="11" TextWrapping="Wrap" Margin="24,3,0,0"
+                               Text="The gateway asks for the password, then for the code in a second prompt."/>
+
                     <TextBlock Text="Gateway" Style="{StaticResource FieldLabel}"/>
                     <TextBox x:Name="GatewayBox"/>
 

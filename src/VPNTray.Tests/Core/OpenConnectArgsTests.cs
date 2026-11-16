@@ -115,4 +115,21 @@ public class OpenConnectArgsTests
     [Fact]
     public void Build_SeparatePrompt_RequiresATokenFile()
         => Assert.Throws<ArgumentException>(() => OpenConnectArgs.Build(Cfg(), tokenSecretPath: null));
+
+    [Fact]
+    public void Build_PinnedAddress_AddsResolveForTheGatewayHost()
+    {
+        var cfg = Cfg();
+        cfg.Gateway = "https://vpn.example.com:8443/group";
+        var args = OpenConnectArgs.Build(cfg, TokenPath, pinnedAddress: "192.0.2.7").ToList();
+
+        int i = args.IndexOf("--resolve");
+        Assert.NotEqual(-1, i);
+        Assert.Equal("vpn.example.com:192.0.2.7", args[i + 1]);
+        Assert.Equal("https://vpn.example.com:8443/group", args[^1]);   // gateway itself unchanged
+    }
+
+    [Fact]
+    public void Build_NoPinnedAddress_HasNoResolve()
+        => Assert.DoesNotContain("--resolve", OpenConnectArgs.Build(Cfg(), TokenPath));
 }

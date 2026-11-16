@@ -9,9 +9,10 @@ public interface IOpenConnectProcessRunning
     /// <see cref="VpnConfig.AppendOtpToPassword"/> on, <paramref name="password"/> already
     /// ends in the current OTP; otherwise it answers only the first auth stage and the
     /// separate OTP prompt is answered by openconnect from <see cref="VpnConfig.TotpSecret"/>.
-    /// Returns after spawn, not handshake.
+    /// Returns after spawn, not handshake. <paramref name="pinnedAddress"/>, when set, is the
+    /// gateway address to connect to instead of the one DNS picks.
     /// </summary>
-    void Start(VpnConfig config, string password);
+    void Start(VpnConfig config, string password, string? pinnedAddress = null);
 
     /// <summary>Resolve within `timeout`; returns connected or failed(reason).</summary>
     Task<OpenConnectHandshake> WaitForHandshakeAsync(TimeSpan timeout);

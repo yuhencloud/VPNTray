@@ -22,11 +22,25 @@ internal sealed class FakeOpenConnect : IOpenConnectProcessRunning
         return Task.FromResult(TunnelDnsServers);
     }
 
-    public void Start(VpnConfig config, string password) { StartCount++; LastPassword = password; Running = true; }
+    /// <summary>Outcomes for successive dials; once drained, <see cref="NextHandshake"/> answers.</summary>
+    public Queue<OpenConnectHandshake> Handshakes { get; } = new();
+    public List<string?> PinnedAddresses { get; } = new();
+    public List<string> Passwords { get; } = new();
+
+    public void Start(VpnConfig config, string password, string? pinnedAddress = null)
+    {
+        StartCount++;
+        LastPassword = password;
+        Passwords.Add(password);
+        PinnedAddresses.Add(pinnedAddress);
+        Running = true;
+    }
+
     public Task<OpenConnectHandshake> WaitForHandshakeAsync(TimeSpan timeout)
     {
-        Running = NextHandshake.Connected;
-        return Task.FromResult(NextHandshake);
+        var outcome = Handshakes.Count > 0 ? Handshakes.Dequeue() : NextHandshake;
+        Running = outcome.Connected;
+        return Task.FromResult(outcome);
     }
     public bool IsRunning() => Running;
     public void Stop() { StopCount++; Running = false; }
@@ -68,9 +82,12 @@ public class VpnControllerTests
         TimeSpan? loginNetworkWait = null,
         IReadOnlyList<TimeSpan>? loginRetryBackoff = null,
         Func<DateTimeOffset>? clock = null,
-        Func<TimeSpan, CancellationToken, Task>? delay = null)
+        Func<TimeSpan, CancellationToken, Task>? delay = null,
+        Func<string, Task<IReadOnlyList<string>>>? resolveGateway = null)
         => new(openConnect, network, loadConfig, splitDns ?? new FakeSplitDns(),
-            loginNetworkWait, loginRetryBackoff, clock, delay);
+            loginNetworkWait, loginRetryBackoff, clock, delay,
+            // Never the real resolver: a test must not depend on what DNS says about "g".
+            resolveGateway ?? (_ => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>())));
 
     [Fact]
     public async Task Connect_Success_SetsConnectedAndAutoReconnect()
@@ -770,5 +787,112 @@ public class VpnControllerTests
 
         Assert.Equal(3, oc.StartCount);
         Assert.True(c.ShouldAutoReconnect);
+    }
+
+    // ----- Gateway-node fallback ---------------------------------------------------------
+
+    private static readonly OpenConnectHandshake Dropped = new(false, HandshakeAnalyzer.GatewayUnreachableReason);
+
+    private static Func<string, Task<IReadOnlyList<string>>> Nodes(params string[] addresses)
+        => _ => Task.FromResult<IReadOnlyList<string>>(addresses);
+
+    private static VpnConfig WithHostGateway(VpnConfig c)
+    {
+        c.Gateway = "vpn.example.com";
+        return c;
+    }
+
+    [Fact]
+    public async Task Connect_GatewayDropsTls_RetriesEachNodeUntilOneConnects()
+    {
+        var oc = new FakeOpenConnect();
+        oc.Handshakes.Enqueue(Dropped);                 // unpinned dial lands on the bad node
+        oc.Handshakes.Enqueue(Dropped);                 // first node pinned: the bad one again
+        oc.Handshakes.Enqueue(new(true, null));         // second node works
+        string? lookedUp = null;
+        var c = Build(oc, new FakeNetworkMonitor(), () => WithHostGateway(Good()),
+            resolveGateway: host => { lookedUp = host; return Nodes("192.0.2.1", "192.0.2.2")(host); });
+
+        await c.ConnectAsync();
+
+        Assert.Equal(VpnStatus.Connected, c.State.Status);
+        Assert.Equal("vpn.example.com", lookedUp);
+        Assert.Equal(new string?[] { null, "192.0.2.1", "192.0.2.2" }, oc.PinnedAddresses);
+    }
+
+    [Fact]
+    public async Task Connect_GatewayDropsTls_OnEveryNode_FailsWithTheGatewayReason_AndStaysArmed()
+    {
+        var oc = new FakeOpenConnect { NextHandshake = Dropped };
+        var c = Build(oc, new FakeNetworkMonitor(), () => WithHostGateway(Good()),
+            loginRetryBackoff: Array.Empty<TimeSpan>(), resolveGateway: Nodes("192.0.2.1", "192.0.2.2"));
+
+        await c.ConnectAtLoginAsync();
+
+        Assert.Equal(3, oc.StartCount);   // unpinned, then each node once
+        Assert.Equal(VpnStatus.Failed, c.State.Status);
+        Assert.Equal(HandshakeAnalyzer.GatewayUnreachableReason, c.State.Reason);
+        Assert.True(c.ShouldAutoReconnect);
+    }
+
+    [Fact]
+    public async Task Connect_GatewayDropsTls_WithASingleNode_DoesNotRetry()
+    {
+        var oc = new FakeOpenConnect { NextHandshake = Dropped };
+        var c = Build(oc, new FakeNetworkMonitor(), () => WithHostGateway(Good()),
+            resolveGateway: Nodes("192.0.2.1"));
+
+        await c.ConnectAsync();
+
+        Assert.Equal(1, oc.StartCount);
+    }
+
+    [Fact]
+    public async Task Connect_AuthRejectedOnAFallbackNode_StopsThereAndDisarms()
+    {
+        var oc = new FakeOpenConnect();
+        oc.Handshakes.Enqueue(Dropped);
+        oc.Handshakes.Enqueue(new(false, HandshakeAnalyzer.AuthFailedReason));
+        var c = Build(oc, new FakeNetworkMonitor(), () => WithHostGateway(Good()),
+            resolveGateway: Nodes("192.0.2.1", "192.0.2.2", "192.0.2.3"));
+
+        await c.ConnectAsync();
+
+        Assert.Equal(2, oc.StartCount);   // no further node after a real rejection
+        Assert.Equal(HandshakeAnalyzer.AuthFailedReason, c.State.Reason);
+        Assert.False(c.ShouldAutoReconnect);
+    }
+
+    [Fact]
+    public async Task Connect_OtherFailures_DoNotTriggerTheFallback()
+    {
+        var oc = new FakeOpenConnect { NextHandshake = new(false, "Handshake timeout") };
+        var lookups = 0;
+        var c = Build(oc, new FakeNetworkMonitor(), () => WithHostGateway(Good()),
+            resolveGateway: host => { lookups++; return Nodes("192.0.2.1", "192.0.2.2")(host); });
+
+        await c.ConnectAsync();
+
+        Assert.Equal(1, oc.StartCount);
+        Assert.Equal(0, lookups);
+    }
+
+    [Fact]
+    public async Task Connect_AppendedOtp_FallbackReusesTheUnspentCode_WithoutWaiting()
+    {
+        // The dropped dial never sent credentials, so its code is still good for the retry.
+        var clock = new ManualClock { Now = WindowStart.AddSeconds(10) };
+        var oc = new FakeOpenConnect();
+        oc.Handshakes.Enqueue(Dropped);
+        oc.Handshakes.Enqueue(new(true, null));
+        var c = Build(oc, new FakeNetworkMonitor(), () => WithHostGateway(Appended()),
+            clock: () => clock.Now, delay: clock.Delay, resolveGateway: Nodes("192.0.2.1", "192.0.2.2"));
+
+        await c.ConnectAsync();
+
+        Assert.Equal(VpnStatus.Connected, c.State.Status);
+        Assert.Empty(clock.Waits);
+        Assert.Equal(2, oc.Passwords.Count);
+        Assert.All(oc.Passwords, p => Assert.Equal("pw" + TotpGenerator.Code(Secret, clock.Now), p));
     }
 }

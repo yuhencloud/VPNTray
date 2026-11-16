@@ -47,6 +47,7 @@ public sealed class VpnController : INotifyPropertyChanged
     private readonly IReadOnlyList<TimeSpan> _loginRetryBackoff;
     private readonly Func<DateTimeOffset> _clock;
     private readonly Func<TimeSpan, CancellationToken, Task> _delay;
+    private readonly Func<string, Task<IReadOnlyList<string>>> _resolveGateway;
 
     /// <summary>
     /// TOTP window of the last code this app appended to a password, or null if none yet.
@@ -61,6 +62,7 @@ public sealed class VpnController : INotifyPropertyChanged
     /// <param name="loginRetryBackoff">Test seam — production callers take the default.</param>
     /// <param name="clock">Test seam for the OTP window — production callers take the default.</param>
     /// <param name="delay">Test seam for the OTP-window wait — production callers take the default.</param>
+    /// <param name="resolveGateway">Test seam for the gateway-node lookup — production callers take the default.</param>
     public VpnController(
         IOpenConnectProcessRunning openConnect,
         INetworkMonitor network,
@@ -69,8 +71,10 @@ public sealed class VpnController : INotifyPropertyChanged
         TimeSpan? loginNetworkWait = null,
         IReadOnlyList<TimeSpan>? loginRetryBackoff = null,
         Func<DateTimeOffset>? clock = null,
-        Func<TimeSpan, CancellationToken, Task>? delay = null)
+        Func<TimeSpan, CancellationToken, Task>? delay = null,
+        Func<string, Task<IReadOnlyList<string>>>? resolveGateway = null)
     {
+        _resolveGateway = resolveGateway ?? GatewayAddress.ResolveAllAsync;
         _openConnect = openConnect;
         _network = network;
         _loadConfig = loadConfig;
@@ -131,6 +135,7 @@ public sealed class VpnController : INotifyPropertyChanged
 
             State = VpnState.Connecting;
 
+            long? otpCounterBefore = _lastOtpCounter;
             string password;
             try { password = await LoginPasswordAsync(config); }
             catch (OperationCanceledException)
@@ -142,8 +147,10 @@ public sealed class VpnController : INotifyPropertyChanged
 
             try
             {
-                _openConnect.Start(config, password);
-                var handshake = await _openConnect.WaitForHandshakeAsync(TimeSpan.FromSeconds(20));
+                var handshake = await DialAsync(config, password, pinnedAddress: null);
+                if (handshake.Reason == HandshakeAnalyzer.GatewayUnreachableReason)
+                    handshake = await DialOtherGatewayNodesAsync(config, otpCounterBefore, handshake);
+
                 if (handshake.Connected)
                 {
                     // Before announcing Connected, so the tunnel is never briefly advertised
@@ -167,6 +174,11 @@ public sealed class VpnController : INotifyPropertyChanged
                     }
                 }
             }
+            catch (OperationCanceledException)
+            {
+                // A disconnect cancelled the OTP wait between two gateway nodes.
+                _openConnect.Stop();
+            }
             catch (Exception ex)
             {
                 _openConnect.Stop();
@@ -178,6 +190,53 @@ public sealed class VpnController : INotifyPropertyChanged
         {
             _gate.Release();
         }
+    }
+
+    private async Task<OpenConnectHandshake> DialAsync(VpnConfig config, string password, string? pinnedAddress)
+    {
+        _openConnect.Start(config, password, pinnedAddress);
+        return await _openConnect.WaitForHandshakeAsync(TimeSpan.FromSeconds(20));
+    }
+
+    /// <summary>
+    /// After the gateway dropped the connection before login, tries each of its addresses
+    /// in turn, pinned with --resolve, and returns the first outcome that is not another such
+    /// drop — or the last drop if every node failed the same way.
+    ///
+    /// Covers a gateway name served by several nodes where one accepts TCP but kills the TLS
+    /// handshake: openconnect itself never moves on to another address. Every node is tried,
+    /// the one that just failed included, because nothing reports which one that was.
+    ///
+    /// A drop happens before any credentials are sent, so the OTP of the failed dial was never
+    /// spent: the window bookkeeping is rolled back to <paramref name="otpCounterBefore"/>
+    /// before each retry, letting it reuse the same code instead of sitting out the window.
+    /// </summary>
+    private async Task<OpenConnectHandshake> DialOtherGatewayNodesAsync(
+        VpnConfig config, long? otpCounterBefore, OpenConnectHandshake failed)
+    {
+        string? host = GatewayAddress.HostName(config.Gateway);
+        if (host is null) return failed;
+
+        IReadOnlyList<string> nodes;
+        try { nodes = await _resolveGateway(host); }
+        catch (Exception ex)
+        {
+            AppLogger.Shared.Error("gateway fallback: lookup failed: " + ex.Message);
+            return failed;
+        }
+        // One address is the one openconnect just failed on; there is nowhere else to go.
+        if (nodes.Count < 2) return failed;
+
+        var last = failed;
+        foreach (var node in nodes.Take(GatewayAddress.MaxFallbackAddresses))
+        {
+            AppLogger.Shared.Info($"gateway dropped the connection before login, retrying via {node}");
+            _lastOtpCounter = otpCounterBefore;
+            string password = await LoginPasswordAsync(config);
+            last = await DialAsync(config, password, node);
+            if (last.Reason != HandshakeAnalyzer.GatewayUnreachableReason) return last;
+        }
+        return last;
     }
 
     /// <summary>

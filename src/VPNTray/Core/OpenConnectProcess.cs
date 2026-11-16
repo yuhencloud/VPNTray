@@ -19,8 +19,10 @@ public static class OpenConnectArgs
     /// TOTP secret in <paramref name="tokenSecretPath"/>. The secret is passed by file — never
     /// on the command line, which is readable by other processes of this user.</item>
     /// </list>
+    /// <paramref name="pinnedAddress"/>, when set, makes openconnect connect to that address
+    /// of the gateway instead of whichever one DNS hands it (see <see cref="GatewayAddress"/>).
     /// </summary>
-    public static IReadOnlyList<string> Build(VpnConfig config, string? tokenSecretPath)
+    public static IReadOnlyList<string> Build(VpnConfig config, string? tokenSecretPath, string? pinnedAddress = null)
     {
         if (config.AppendOtpToPassword != (tokenSecretPath is null))
             throw new ArgumentException(
@@ -41,6 +43,12 @@ public static class OpenConnectArgs
         {
             args.Add("--token-mode"); args.Add("totp"); // second prompt: openconnect fills in the OTP
             args.Add("--token-secret"); args.Add("@" + tokenSecretPath);
+        }
+        if (pinnedAddress is not null)
+        {
+            string host = GatewayAddress.HostName(config.Gateway)
+                ?? throw new ArgumentException("The gateway has no host name to pin.", nameof(pinnedAddress));
+            args.Add("--resolve"); args.Add(GatewayAddress.ResolveArgument(host, pinnedAddress));
         }
         args.Add("--non-inter");                    // fail loudly on an unexpected form instead of hanging
         args.Add("--servercert"); args.Add(config.ServerCertPin);
@@ -103,7 +111,7 @@ public sealed class OpenConnectProcess : IOpenConnectProcessRunning
         return known.Count > 0 ? known : await CaptureTunnelDnsAsync();
     }
 
-    public void Start(VpnConfig config, string password)
+    public void Start(VpnConfig config, string password, string? pinnedAddress = null)
     {
         Stop(); // clean up any prior invocation (also deletes its temp files)
         SweepStaleTempFiles();
@@ -128,7 +136,7 @@ public sealed class OpenConnectProcess : IOpenConnectProcessRunning
             CreateNoWindow = true,
             WorkingDirectory = BundledBinaries.BaseDir, // so wintun.dll resolves
         };
-        foreach (var arg in OpenConnectArgs.Build(config, tokenFile)) psi.ArgumentList.Add(arg);
+        foreach (var arg in OpenConnectArgs.Build(config, tokenFile, pinnedAddress)) psi.ArgumentList.Add(arg);
 
         // Asked for whenever the tunnel is not taking DNS over, not only when a suffix list
         // exists today: the lists are editable under a live connection, and a list added mid

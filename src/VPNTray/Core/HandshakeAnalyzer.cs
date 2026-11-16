@@ -11,7 +11,11 @@ public static class HandshakeAnalyzer
     private const string TlsDroppedMarker = "SSL connection failure";
     private const string HttpsUnreachableMarker = "Failed to open HTTPS connection";
 
-    private const string GatewayUnreachableReason =
+    /// <summary>
+    /// The reason for a failure before any credentials were sent. Public so callers can tell
+    /// it apart: such a dial spent no OTP and is safe to retry against another gateway node.
+    /// </summary>
+    public const string GatewayUnreachableReason =
         "Could not open a secure connection to the VPN gateway — it dropped the connection " +
         "before login. Try again; if it keeps failing, the gateway may be having trouble.";
 

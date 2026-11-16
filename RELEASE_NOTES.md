@@ -1,5 +1,12 @@
 # Release notes
 
+## 1.6.0 — 2026-11-16
+
+- When the VPN gateway drops the secure connection before the login form, the app now
+  tries the gateway's other servers on its own instead of failing. The gateway name points
+  at several servers, and one of them refusing connections no longer stops you from
+  connecting. Your one-time code is not used up by these retries.
+
 ## 1.5.1 — 2026-11-16
 
 - Fix: when the VPN gateway drops the secure connection before the login form, the app

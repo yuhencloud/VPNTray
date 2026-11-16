@@ -1,5 +1,17 @@
 # Release notes
 
+## 1.5.0 — 2026-11-16
+
+- New "One-time code" setting for gateways that want the 6-digit code typed straight
+  after the password in the same prompt (password `Abc#2026` + code `123456` →
+  `Abc#2026123456`). This is now the default; choose "Separate code prompt" in
+  Settings for a gateway that still asks for the code in a second prompt.
+- The app never sends the same one-time code twice: a reconnect within the same
+  30-second window, or with a code about to expire, waits for the next code instead.
+- After the gateway rejects a login, the app stops reconnecting on its own (at logon
+  and when the network returns) until you connect again, so repeated failures do not
+  lock your account.
+
 ## 1.4.0 — 2026-08-26
 
 - Connect-at-login now waits for the network instead of failing into it. At logon the
